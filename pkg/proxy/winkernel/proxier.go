@@ -1000,6 +1000,8 @@ func (proxier *Proxier) syncProxyRules() {
 		return
 	}
 
+	klog.V(2).InfoS("Prince ==>> ", "syncProxyRules called ...")
+
 	// Keep track of how long syncs take.
 	start := time.Now()
 	defer func() {
@@ -1117,12 +1119,16 @@ func (proxier *Proxier) syncProxyRules() {
 		containsPublicIP := false
 		containsNodeIP := false
 
+		klog.V(2).InfoS("Prince ==>> ", "syncProxyRules => : Iterating thru endpoints called ...")
+
 		for _, epInfo := range proxier.endpointsMap[svcName] {
 			ep, ok := epInfo.(*endpointsInfo)
 			if !ok {
 				klog.ErrorS(nil, "Failed to cast endpointsInfo", "serviceName", svcName)
 				continue
 			}
+
+			klog.V(2).InfoS("Prince ==>> ", "syncProxyRules => : EndpointInfo : ", ep)
 
 			if !ep.IsReady() {
 				continue
