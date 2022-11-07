@@ -909,7 +909,7 @@ func (proxier *Proxier) OnServiceSynced() {
 	proxier.servicesSynced = true
 	proxier.setInitialized(proxier.endpointSlicesSynced)
 	proxier.mu.Unlock()
-
+	klog.V(2).InfoS("Prince ==>> OnServiceSynced called ...")
 	// Sync unconditionally - this is called once per lifetime.
 	proxier.syncProxyRules()
 }
@@ -959,7 +959,7 @@ func (proxier *Proxier) OnEndpointSlicesSynced() {
 	proxier.endpointSlicesSynced = true
 	proxier.setInitialized(proxier.servicesSynced)
 	proxier.mu.Unlock()
-
+	klog.V(2).InfoS("Prince ==>> OnEndpointSlicesSynced called ...")
 	// Sync unconditionally - this is called once per lifetime.
 	proxier.syncProxyRules()
 }
@@ -1000,7 +1000,7 @@ func (proxier *Proxier) syncProxyRules() {
 		return
 	}
 
-	klog.V(2).InfoS("Prince ==>> ", "syncProxyRules called ...")
+	klog.V(2).InfoS("Prince ==>> syncProxyRules called ...")
 
 	// Keep track of how long syncs take.
 	start := time.Now()
@@ -1119,7 +1119,7 @@ func (proxier *Proxier) syncProxyRules() {
 		containsPublicIP := false
 		containsNodeIP := false
 
-		klog.V(2).InfoS("Prince ==>> ", "syncProxyRules => : Iterating thru endpoints called ...")
+		klog.V(2).InfoS("Prince ==>> syncProxyRules => : Iterating thru endpoints called ...")
 
 		for _, epInfo := range proxier.endpointsMap[svcName] {
 			ep, ok := epInfo.(*endpointsInfo)
@@ -1128,7 +1128,7 @@ func (proxier *Proxier) syncProxyRules() {
 				continue
 			}
 
-			klog.V(2).InfoS("Prince ==>> ", "syncProxyRules => : EndpointInfo : ", ep)
+			klog.V(2).InfoS("Prince ==>> ", "syncProxyRules => : EpIP : ", ep.ip, " EpPort : ", ep.port, " hnsID ", ep.hnsID, " ready : ", ep.ready, " serving : ", ep.serving, " terminating : ", ep.terminating)
 
 			if !ep.IsReady() {
 				continue
