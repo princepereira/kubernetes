@@ -88,6 +88,18 @@ func (policylist *PolicyList) Create() (*PolicyList, error) {
 	return PolicyListRequest("POST", "", string(jsonString))
 }
 
+// Update PolicyList by sending PolicyListRequest to HNS.
+func (policylist *PolicyList) Update() (*PolicyList, error) {
+	operation := "Update"
+	title := "hcsshim::PolicyList::" + operation
+	logrus.Debugf(title+" id=%s", policylist.ID)
+	jsonString, err := json.Marshal(policylist)
+	if err != nil {
+		return nil, err
+	}
+	return PolicyListRequest("POST", "", string(jsonString))
+}
+
 // Delete deletes PolicyList
 func (policylist *PolicyList) Delete() (*PolicyList, error) {
 	operation := "Delete"
