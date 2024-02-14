@@ -130,6 +130,10 @@ func (hns fakeHNS) deleteLoadBalancer(hnsID string) error {
 	return nil
 }
 
+func (hns fakeHNS) updateLoadBalancer(hnsLbID, sourceVip, vip string, endpoints []endpointsInfo, flags loadBalancerFlags, protocol, internalPort, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error) {
+	return nil, nil
+}
+
 func NewFakeProxier(syncPeriod time.Duration, minSyncPeriod time.Duration, clusterCIDR string, hostname string, nodeIP net.IP, networkType string) *Proxier {
 	sourceVip := "192.168.1.2"
 	hnsNetworkInfo := &hnsNetworkInfo{

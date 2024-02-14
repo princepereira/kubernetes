@@ -39,6 +39,7 @@ type HostNetworkService interface {
 	createEndpoint(ep *endpointsInfo, networkName string) (*endpointsInfo, error)
 	deleteEndpoint(hnsID string) error
 	getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
+	updateLoadBalancer(hnsLbID, sourceVip, vip string, endpoints []endpointsInfo, flags loadBalancerFlags, protocol, internalPort, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
 	getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error)
 	deleteLoadBalancer(hnsID string) error
 }
@@ -267,15 +268,15 @@ func (hns hns) deleteEndpoint(hnsID string) error {
 // findLoadBalancerID will construct a id from the provided loadbalancer fields
 func findLoadBalancerID(endpoints []endpointsInfo, vip string, protocol, internalPort, externalPort uint16) (loadBalancerIdentifier, error) {
 	// Compute hash from backends (endpoint IDs)
-	hash, err := hashEndpoints(endpoints)
+	_, err := hashEndpoints(endpoints)
 	if err != nil {
 		klog.V(2).ErrorS(err, "Error hashing endpoints", "endpoints", endpoints)
 		return loadBalancerIdentifier{}, err
 	}
 	if len(vip) > 0 {
-		return loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort, vip: vip, endpointsHash: hash}, nil
+		return loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort, vip: vip}, nil
 	}
-	return loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort, endpointsHash: hash}, nil
+	return loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort}, nil
 }
 
 func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error) {
@@ -288,16 +289,16 @@ func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerIn
 	for _, lb := range lbs {
 		portMap := lb.PortMappings[0]
 		// Compute hash from backends (endpoint IDs)
-		hash, err := hashEndpoints(lb.HostComputeEndpoints)
+		_, err := hashEndpoints(lb.HostComputeEndpoints)
 		if err != nil {
 			klog.V(2).ErrorS(err, "Error hashing endpoints", "policy", lb)
 			return nil, err
 		}
 		if len(lb.FrontendVIPs) == 0 {
 			// Leave VIP uninitialized
-			id = loadBalancerIdentifier{protocol: uint16(portMap.Protocol), internalPort: portMap.InternalPort, externalPort: portMap.ExternalPort, endpointsHash: hash}
+			id = loadBalancerIdentifier{protocol: uint16(portMap.Protocol), internalPort: portMap.InternalPort, externalPort: portMap.ExternalPort}
 		} else {
-			id = loadBalancerIdentifier{protocol: uint16(portMap.Protocol), internalPort: portMap.InternalPort, externalPort: portMap.ExternalPort, vip: lb.FrontendVIPs[0], endpointsHash: hash}
+			id = loadBalancerIdentifier{protocol: uint16(portMap.Protocol), internalPort: portMap.InternalPort, externalPort: portMap.ExternalPort, vip: lb.FrontendVIPs[0]}
 		}
 		loadBalancers[id] = &loadBalancerInfo{
 			hnsID: lb.Id,
@@ -305,6 +306,36 @@ func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerIn
 	}
 	klog.V(3).InfoS("Queried load balancers", "count", len(lbs))
 	return loadBalancers, nil
+}
+
+func getLoadBalancerPolicyFlags(flags loadBalancerFlags) (lbPortMappingFlags hcn.LoadBalancerPortMappingFlags, lbFlags hcn.LoadBalancerFlags) {
+	lbPortMappingFlags = hcn.LoadBalancerPortMappingFlagsNone
+	if flags.isILB {
+		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsILB
+	}
+	if flags.useMUX {
+		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsUseMux
+	}
+	if flags.preserveDIP {
+		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsPreserveDIP
+	}
+	if flags.localRoutedVIP {
+		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsLocalRoutedVIP
+	}
+	if flags.isVipExternalIP {
+		lbPortMappingFlags |= LoadBalancerPortMappingFlagsVipExternalIP
+	}
+
+	lbFlags = hcn.LoadBalancerFlagsNone
+	if flags.isDSR {
+		lbFlags |= hcn.LoadBalancerFlagsDSR
+	}
+
+	if flags.isIPv6 {
+		lbFlags |= LoadBalancerFlagsIPv6
+	}
+
+	return
 }
 
 func (hns hns) getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error) {
@@ -328,31 +359,7 @@ func (hns hns) getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlag
 		return lb, nil
 	}
 
-	lbPortMappingFlags := hcn.LoadBalancerPortMappingFlagsNone
-	if flags.isILB {
-		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsILB
-	}
-	if flags.useMUX {
-		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsUseMux
-	}
-	if flags.preserveDIP {
-		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsPreserveDIP
-	}
-	if flags.localRoutedVIP {
-		lbPortMappingFlags |= hcn.LoadBalancerPortMappingFlagsLocalRoutedVIP
-	}
-	if flags.isVipExternalIP {
-		lbPortMappingFlags |= LoadBalancerPortMappingFlagsVipExternalIP
-	}
-
-	lbFlags := hcn.LoadBalancerFlagsNone
-	if flags.isDSR {
-		lbFlags |= hcn.LoadBalancerFlagsDSR
-	}
-
-	if flags.isIPv6 {
-		lbFlags |= LoadBalancerFlagsIPv6
-	}
+	lbPortMappingFlags, lbFlags := getLoadBalancerPolicyFlags(flags)
 
 	lbDistributionType := hcn.LoadBalancerDistributionNone
 
@@ -390,6 +397,72 @@ func (hns hns) getLoadBalancer(endpoints []endpointsInfo, flags loadBalancerFlag
 	}
 
 	klog.V(1).InfoS("Created Hns loadbalancer policy resource", "loadBalancer", lb)
+	lbInfo := &loadBalancerInfo{
+		hnsID: lb.Id,
+	}
+	// Add to map of load balancers
+	previousLoadBalancers[id] = lbInfo
+	return lbInfo, err
+}
+
+func (hns hns) updateLoadBalancer(hnsLbID, sourceVip, vip string, endpoints []endpointsInfo, flags loadBalancerFlags, protocol, internalPort, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error) {
+	var id loadBalancerIdentifier
+	vips := []string{}
+	if len(vip) > 0 {
+		id = loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort, vip: vip}
+		vips = append(vips, vip)
+	} else {
+		id = loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort}
+	}
+
+	klog.V(3).InfoS("Updating existing loadbalancer called ===== 2", "hnsLbID", hnsLbID, "endpointCount", len(endpoints))
+
+	if lb, found := previousLoadBalancers[id]; found {
+		klog.V(1).InfoS("Found cached Hns loadbalancer policy resource", "policies", lb)
+		// return lb, nil
+	}
+
+	lbPortMappingFlags, lbFlags := getLoadBalancerPolicyFlags(flags)
+
+	lbDistributionType := hcn.LoadBalancerDistributionNone
+
+	if flags.sessionAffinity {
+		lbDistributionType = hcn.LoadBalancerDistributionSourceIP
+	}
+
+	loadBalancer := &hcn.HostComputeLoadBalancer{
+		SourceVIP: sourceVip,
+		PortMappings: []hcn.LoadBalancerPortMapping{
+			{
+				Protocol:         uint32(protocol),
+				InternalPort:     internalPort,
+				ExternalPort:     externalPort,
+				DistributionType: lbDistributionType,
+				Flags:            lbPortMappingFlags,
+			},
+		},
+		FrontendVIPs: vips,
+		SchemaVersion: hcn.SchemaVersion{
+			Major: 2,
+			Minor: 0,
+		},
+		Flags: lbFlags,
+	}
+
+	for _, ep := range endpoints {
+		loadBalancer.HostComputeEndpoints = append(loadBalancer.HostComputeEndpoints, ep.hnsID)
+	}
+
+	klog.V(3).InfoS("Updating existing loadbalancer called ===== 3", "hnsLbID", hnsLbID, "endpointCount", len(endpoints))
+
+	lb, err := loadBalancer.Update()
+
+	if err != nil {
+		klog.V(3).InfoS("Updating existing loadbalancer called ===== 4", "hnsLbID", hnsLbID, "error", err)
+		return nil, err
+	}
+
+	klog.V(1).InfoS("Updated Hns loadbalancer policy resource", "loadBalancer", lb)
 	lbInfo := &loadBalancerInfo{
 		hnsID: lb.Id,
 	}

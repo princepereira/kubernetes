@@ -154,6 +154,15 @@ const (
 	MAX_COUNT_STALE_LOADBALANCERS = 20
 )
 
+type loadbalancerType int8
+
+const (
+	loadbalancerTypeClusterIP loadbalancerType = iota
+	loadbalancerTypeNodePort
+	loadbalancerTypeIngressIP
+	loadbalancerTypeExternal
+)
+
 func newHostNetworkService() (HostNetworkService, hcn.SupportedFeatures) {
 	var h HostNetworkService
 	supportedFeatures := hcn.GetSupportedFeatures()
@@ -1469,7 +1478,7 @@ func (proxier *Proxier) syncProxyRules() {
 		}
 
 		endpointsAvailableForLB := !allEndpointsTerminating && !allEndpointsNonServing
-		proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.hnsID, sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), hnsEndpoints, queriedLoadBalancers)
+		// proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.hnsID, sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), hnsEndpoints, queriedLoadBalancers)
 
 		// clusterIPEndpoints is the endpoint list used for creating ClusterIP loadbalancer.
 		clusterIPEndpoints := hnsEndpoints
@@ -1478,30 +1487,16 @@ func (proxier *Proxier) syncProxyRules() {
 			clusterIPEndpoints = hnsLocalEndpoints
 		}
 
-		if len(clusterIPEndpoints) > 0 {
+		clusterIPLoadbalancer, err := proxier.updateOrDeleteExistingLoadBalancer(hns, svcInfo.hnsID, sourceVip, svcInfo, loadbalancerTypeClusterIP, clusterIPEndpoints, queriedLoadBalancers)
 
-			// If all endpoints are terminating, then no need to create Cluster IP LoadBalancer
-			// Cluster IP LoadBalancer creation
-			hnsLoadBalancer, err := hns.getLoadBalancer(
-				clusterIPEndpoints,
-				loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP},
-				sourceVip,
-				svcInfo.ClusterIP().String(),
-				Enum(svcInfo.Protocol()),
-				uint16(svcInfo.targetPort),
-				uint16(svcInfo.Port()),
-				queriedLoadBalancers,
-			)
-			if err != nil {
-				klog.ErrorS(err, "Policy creation failed")
-				continue
-			}
+		if err != nil {
+			klog.ErrorS(err, "Cluster IP Policy creation failed")
+			continue
+		}
 
-			svcInfo.hnsID = hnsLoadBalancer.hnsID
-			klog.V(3).InfoS("Hns LoadBalancer resource created for cluster ip resources", "clusterIP", svcInfo.ClusterIP(), "hnsID", hnsLoadBalancer.hnsID)
-
-		} else {
-			klog.V(3).InfoS("Skipped creating Hns LoadBalancer for cluster ip resources. Reason : all endpoints are terminating", "clusterIP", svcInfo.ClusterIP(), "nodeport", svcInfo.NodePort(), "allEndpointsTerminating", allEndpointsTerminating)
+		if clusterIPLoadbalancer != nil {
+			svcInfo.hnsID = clusterIPLoadbalancer.hnsID
+			klog.V(3).InfoS("Hns LoadBalancer resource created for cluster ip resources", "clusterIP", svcInfo.ClusterIP(), "hnsID", clusterIPLoadbalancer.hnsID)
 		}
 
 		// If nodePort is specified, user should be able to use nodeIP:nodePort to reach the backend endpoints
@@ -1669,6 +1664,63 @@ func (proxier *Proxier) syncProxyRules() {
 	// This will cleanup stale load balancers which are pending delete
 	// in last iteration
 	proxier.cleanupStaleLoadbalancers()
+}
+
+// updateOrDeleteExistingLoadBalancer checks whether loadbalancer update is needed or not.
+// If there are one or more than one endpoints for the service, the function will update the existing loadbalancer and return true.
+// If update is not required, will proceed with delete loadbalancer.
+func (proxier *Proxier) updateOrDeleteExistingLoadBalancer(hns HostNetworkService, hnsLbID, sourceVip string, svcInfo *serviceInfo, loadbalancerType loadbalancerType, endpoints []endpointsInfo, queriedLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (loadbalancer *loadBalancerInfo, err error) {
+
+	if len(endpoints) == 0 && hnsLbID != "" {
+		klog.V(3).InfoS("Deleting existing loadbalancer as there is no endpoints for the update service", "hnsLbID", hnsLbID, "loadbalancertype", loadbalancerType, "sourceVip", sourceVip, "clusterIP", svcInfo.ClusterIP().String())
+		proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.hnsID, sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), endpoints, queriedLoadBalancers)
+		return nil, nil
+	}
+
+	if len(endpoints) == 0 {
+		klog.V(3).InfoS("Skipping update loadbalancer as there is no endpoints for the update service", "hnsLbID", hnsLbID, "loadbalancertype", loadbalancerType, "sourceVip", sourceVip, "clusterIP", svcInfo.ClusterIP().String())
+		return nil, nil
+	}
+
+	sessionAffinityClientIP := svcInfo.SessionAffinityType() == v1.ServiceAffinityClientIP
+
+	klog.V(3).InfoS("Updating existing loadbalancer as there is more endpoints for the update service", "hnsLbID", hnsLbID, "loadbalancertype", loadbalancerType, "sourceVip", sourceVip, "clusterIP", svcInfo.ClusterIP().String(), "endpointCount", len(endpoints))
+
+	if loadbalancerType == loadbalancerTypeClusterIP {
+		loadbalancerFlags := loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP}
+		if hnsLbID == "" {
+			loadbalancer, err = hns.getLoadBalancer(
+				endpoints,
+				loadbalancerFlags,
+				sourceVip,
+				svcInfo.ClusterIP().String(),
+				Enum(svcInfo.Protocol()),
+				uint16(svcInfo.targetPort),
+				uint16(svcInfo.Port()),
+				queriedLoadBalancers,
+			)
+		} else {
+			loadbalancer, err = hns.updateLoadBalancer(
+				hnsLbID, 
+				sourceVip, 
+				svcInfo.ClusterIP().String(), 
+				endpoints, 
+				loadbalancerFlags, 
+				Enum(svcInfo.Protocol()), 
+				uint16(svcInfo.targetPort), 
+				uint16(svcInfo.Port()), 
+				queriedLoadBalancers,
+			)
+		}
+		
+		if err != nil {
+			klog.ErrorS(err, "Cluster IP Policy creation failed")
+			return
+		}
+	}
+
+	klog.V(3).InfoS("Updating existing loadbalancer successful", "hnsLbID", hnsLbID, "loadbalancertype", loadbalancerType, "sourceVip", sourceVip, "clusterIP", svcInfo.ClusterIP().String(), "endpointCount", len(endpoints))
+	return
 }
 
 // deleteExistingLoadBalancer checks whether loadbalancer delete is needed or not.

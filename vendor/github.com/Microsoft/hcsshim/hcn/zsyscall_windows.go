@@ -586,26 +586,34 @@ func hcnOpenLoadBalancer(id *_guid, loadBalancer *hcnLoadBalancer, result **uint
 	return
 }
 
-func hcnModifyLoadBalancer(loadBalancer hcnLoadBalancer, settings string, result **uint16) (hr error) {
+func hcnModifyLoadBalancer(id *_guid, settings string, loadBalancer *hcnLoadBalancer, result **uint16) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(settings)
 	if hr != nil {
 		return
 	}
-	return _hcnModifyLoadBalancer(loadBalancer, _p0, result)
+	return _hcnModifyLoadBalancer(id, _p0, loadBalancer, result)
 }
 
-func _hcnModifyLoadBalancer(loadBalancer hcnLoadBalancer, settings *uint16, result **uint16) (hr error) {
-	if hr = procHcnModifyLoadBalancer.Find(); hr != nil {
+func _hcnModifyLoadBalancer(id *_guid, settings *uint16, loadBalancer *hcnLoadBalancer, result **uint16) (hr error) {
+	if hr = procHcnModifyLoadBalancer.Find(); hr == nil {
 		return
 	}
-	r0, _, _ := syscall.Syscall(procHcnModifyLoadBalancer.Addr(), 3, uintptr(loadBalancer), uintptr(unsafe.Pointer(settings)), uintptr(unsafe.Pointer(result)))
+	r0, _, _ := syscall.Syscall(procHcnModifyLoadBalancer.Addr(), 3, uintptr(unsafe.Pointer(loadBalancer)), uintptr(unsafe.Pointer(settings)), uintptr(unsafe.Pointer(result)))
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
 			r0 &= 0xffff
 		}
 		hr = syscall.Errno(r0)
 	}
+
+	// r0, _, _ := syscall.Syscall6(procHcnModifyLoadBalancer.Addr(), 4, uintptr(unsafe.Pointer(id)), uintptr(unsafe.Pointer(settings)), uintptr(unsafe.Pointer(loadBalancer)), uintptr(unsafe.Pointer(result)), 0, 0)
+	// if int32(r0) < 0 {
+	// 	if r0&0x1fff0000 == 0x00070000 {
+	// 		r0 &= 0xffff
+	// 	}
+	// 	hr = syscall.Errno(r0)
+	// }
 	return
 }
 
