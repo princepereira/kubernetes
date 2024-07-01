@@ -50,6 +50,7 @@ type ErrorCode uint32
 const (
 	ERROR_NOT_FOUND                     = 0x490
 	HCN_E_PORT_ALREADY_EXISTS ErrorCode = 0x803b0013
+	HCN_E_NOTIMPL 			  ErrorCode = 0x80004001
 )
 
 type HcnError struct {
@@ -75,6 +76,10 @@ func IsElementNotFoundError(err error) bool {
 
 func IsPortAlreadyExistsError(err error) bool {
 	return CheckErrorWithCode(err, HCN_E_PORT_ALREADY_EXISTS)
+}
+
+func IsNotImplemented(err error) bool {
+	return CheckErrorWithCode(err, HCN_E_NOTIMPL)
 }
 
 func new(hr error, title string, rest string) error {
