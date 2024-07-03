@@ -2,12 +2,14 @@
 
 module k8s.io/mount-utils
 
-go 1.20
+go 1.22.0
+
+toolchain go1.22.4
 
 require (
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/stretchr/testify v1.8.2
-	golang.org/x/sys v0.18.0
+	golang.org/x/sys v0.24.0
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 )

@@ -22,7 +22,7 @@ package stats
 import (
 	"time"
 
-	"github.com/Microsoft/hcsshim"
+	"github.com/Microsoft/hcnshim"
 	cadvisorapiv2 "github.com/google/cadvisor/info/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,19 +33,19 @@ import (
 
 // windowsNetworkStatsProvider creates an interface that allows for testing the logic without needing to create a container
 type windowsNetworkStatsProvider interface {
-	HNSListEndpointRequest() ([]hcsshim.HNSEndpoint, error)
-	GetHNSEndpointStats(endpointName string) (*hcsshim.HNSEndpointStats, error)
+	HNSListEndpointRequest() ([]hcnshim.HNSEndpoint, error)
+	GetHNSEndpointStats(endpointName string) (*hcnshim.HNSEndpointStats, error)
 }
 
-// networkStats exposes the required functionality for hcsshim in this scenario
+// networkStats exposes the required functionality for hcnshim in this scenario
 type networkStats struct{}
 
-func (s networkStats) HNSListEndpointRequest() ([]hcsshim.HNSEndpoint, error) {
-	return hcsshim.HNSListEndpointRequest()
+func (s networkStats) HNSListEndpointRequest() ([]hcnshim.HNSEndpoint, error) {
+	return hcnshim.HNSListEndpointRequest()
 }
 
-func (s networkStats) GetHNSEndpointStats(endpointName string) (*hcsshim.HNSEndpointStats, error) {
-	return hcsshim.GetHNSEndpointStats(endpointName)
+func (s networkStats) GetHNSEndpointStats(endpointName string) (*hcnshim.HNSEndpointStats, error) {
+	return hcnshim.GetHNSEndpointStats(endpointName)
 }
 
 // listContainerNetworkStats returns the network stats of all the running containers.
@@ -176,8 +176,8 @@ func (p *criStatsProvider) makeWinContainerStats(
 	return result
 }
 
-// hcsStatsToNetworkStats converts hcsshim.Statistics.Network to statsapi.NetworkStats
-func hcsStatsToNetworkStats(timestamp time.Time, hcsStats *hcsshim.HNSEndpointStats, endpointName string) *statsapi.NetworkStats {
+// hcsStatsToNetworkStats converts hcnshim.Statistics.Network to statsapi.NetworkStats
+func hcsStatsToNetworkStats(timestamp time.Time, hcsStats *hcnshim.HNSEndpointStats, endpointName string) *statsapi.NetworkStats {
 	result := &statsapi.NetworkStats{
 		Time:       metav1.NewTime(timestamp),
 		Interfaces: make([]statsapi.InterfaceStats, 0),
@@ -192,7 +192,7 @@ func hcsStatsToNetworkStats(timestamp time.Time, hcsStats *hcsshim.HNSEndpointSt
 	return result
 }
 
-func hcsStatToInterfaceStat(hcsStats *hcsshim.HNSEndpointStats, endpointName string) statsapi.InterfaceStats {
+func hcsStatToInterfaceStat(hcsStats *hcnshim.HNSEndpointStats, endpointName string) statsapi.InterfaceStats {
 	iStat := statsapi.InterfaceStats{
 		Name:    endpointName,
 		RxBytes: &hcsStats.BytesReceived,
@@ -259,7 +259,7 @@ func criInterfaceToWinSummary(criIface *runtimeapi.WindowsNetworkInterfaceUsage)
 	}
 }
 
-// newNetworkStatsProvider uses the real windows hcsshim if not provided otherwise if the interface is provided
+// newNetworkStatsProvider uses the real windows hcnshim if not provided otherwise if the interface is provided
 // by the cristatsprovider in testing scenarios it uses that one
 func newNetworkStatsProvider(p *criStatsProvider) windowsNetworkStatsProvider {
 	var statsProvider windowsNetworkStatsProvider
