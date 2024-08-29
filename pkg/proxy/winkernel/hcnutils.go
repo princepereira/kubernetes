@@ -20,8 +20,7 @@ limitations under the License.
 package winkernel
 
 import (
-	"github.com/Microsoft/hcsshim"
-	"github.com/Microsoft/hcsshim/hcn"
+	"github.com/Microsoft/hcnshim/hcn"
 	"k8s.io/klog/v2"
 )
 
@@ -121,15 +120,12 @@ func (hcnObj hcnImpl) DsrSupported() error {
 }
 
 func (hcnObj hcnImpl) DeleteAllHnsLoadBalancerPolicy() {
-	plists, err := hcsshim.HNSListPolicyListRequest()
+	plists, err := hcn.ListLoadBalancers()
 	if err != nil {
 		return
 	}
 	for _, plist := range plists {
 		klog.V(3).InfoS("Remove policy", "policies", plist)
-		_, err = plist.Delete()
-		if err != nil {
-			klog.ErrorS(err, "Failed to delete policy list")
-		}
+		plist.Delete()
 	}
 }
