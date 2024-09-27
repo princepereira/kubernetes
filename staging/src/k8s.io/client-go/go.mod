@@ -2,7 +2,9 @@
 
 module k8s.io/client-go
 
-go 1.21
+go 1.22.0
+
+toolchain go1.22.6
 
 require (
 	github.com/evanphx/json-patch v4.12.0+incompatible
@@ -23,7 +25,7 @@ require (
 	golang.org/x/oauth2 v0.10.0
 	golang.org/x/term v0.18.0
 	golang.org/x/time v0.3.0
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.34.2
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/klog/v2 v2.110.1
@@ -52,7 +54,7 @@ require (
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect

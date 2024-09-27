@@ -6,7 +6,9 @@
 
 module k8s.io/kubernetes
 
-go 1.21
+go 1.22.0
+
+toolchain go1.22.6
 
 require (
 	bitbucket.org/bertimus9/systemstat v0.5.0
@@ -15,8 +17,9 @@ require (
 	github.com/Azure/go-autorest/autorest/adal v0.9.23
 	github.com/GoogleCloudPlatform/k8s-cloud-provider v1.18.1-0.20220218231025-f11817397a1b
 	github.com/JeffAshton/win_pdh v0.0.0-20161109143554-76bb4ee9f0ab
-	github.com/Microsoft/go-winio v0.6.0
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/Microsoft/hcsshim v0.8.25
+	github.com/Microsoft/hnslib v0.0.4
 	github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5
 	github.com/blang/semver/v4 v4.0.0
@@ -82,14 +85,14 @@ require (
 	golang.org/x/net v0.23.0
 	golang.org/x/oauth2 v0.10.0
 	golang.org/x/sync v0.5.0
-	golang.org/x/sys v0.18.0
+	golang.org/x/sys v0.24.0
 	golang.org/x/term v0.18.0
 	golang.org/x/time v0.3.0
 	golang.org/x/tools v0.16.1
 	google.golang.org/api v0.126.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d
 	google.golang.org/grpc v1.58.3
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.34.2
 	gopkg.in/gcfg.v1 v1.2.3
 	gopkg.in/square/go-jose.v2 v2.6.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -212,7 +215,7 @@ require (
 	github.com/rubiojr/go-vhd v0.0.0-20200706105327-02e210299021 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/seccomp/libseccomp-golang v0.10.0 // indirect
-	github.com/sirupsen/logrus v1.9.0 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635 // indirect

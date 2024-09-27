@@ -1,6 +1,8 @@
 module k8s.io/kms/plugins/mock
 
-go 1.21
+go 1.22.0
+
+toolchain go1.22.6
 
 require (
 	github.com/ThalesIgnite/crypto11 v1.2.5
@@ -14,11 +16,11 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/thales-e-security/pool v0.0.2 // indirect
 	golang.org/x/net v0.23.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/sys v0.24.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/grpc v1.58.3 // indirect
-	google.golang.org/protobuf v1.33.0 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )
 
 replace k8s.io/kms => ../../../../kms
