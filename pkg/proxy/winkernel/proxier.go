@@ -112,6 +112,7 @@ type loadBalancerFlags struct {
 	preserveDIP     bool
 	sessionAffinity bool
 	isIPv6          bool
+	l4ProxyEnabled  bool
 }
 
 // internal struct for string service information
@@ -129,6 +130,7 @@ type serviceInfo struct {
 	localTrafficDSR        bool
 	internalTrafficLocal   bool
 	winProxyOptimization   bool
+	l4ProxyEnabled         bool
 }
 
 type hnsNetworkInfo struct {
@@ -549,6 +551,7 @@ func (proxier *Proxier) newServiceInfo(port *v1.ServicePort, service *v1.Service
 	preserveDIP := service.Annotations["preserve-destination"] == "true"
 	// Annotation introduced to enable optimized loadbalancing
 	winProxyOptimization := !(strings.ToUpper(service.Annotations["winProxyOptimization"]) == "DISABLED")
+	l4ProxyEnabled := (service.Spec.Type == v1.ServiceTypeClusterIP) && (strings.ToUpper(service.Annotations["l4Proxy"]) == "ENABLED")
 	localTrafficDSR := service.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyLocal
 	var internalTrafficLocal bool
 	if service.Spec.InternalTrafficPolicy != nil {
@@ -572,7 +575,8 @@ func (proxier *Proxier) newServiceInfo(port *v1.ServicePort, service *v1.Service
 	info.localTrafficDSR = localTrafficDSR
 	info.internalTrafficLocal = internalTrafficLocal
 	info.winProxyOptimization = winProxyOptimization
-	klog.V(3).InfoS("Flags enabled for service", "service", service.Name, "localTrafficDSR", localTrafficDSR, "internalTrafficLocal", internalTrafficLocal, "preserveDIP", preserveDIP, "winProxyOptimization", winProxyOptimization)
+	info.l4ProxyEnabled = l4ProxyEnabled
+	klog.V(3).InfoS("Flags enabled for service", "service", service.Name, "localTrafficDSR", localTrafficDSR, "internalTrafficLocal", internalTrafficLocal, "preserveDIP", preserveDIP, "winProxyOptimization", winProxyOptimization, "l4ProxyEnabled", l4ProxyEnabled)
 
 	for _, eip := range service.Spec.ExternalIPs {
 		info.externalIPs = append(info.externalIPs, &externalIPInfo{ip: eip})
@@ -1494,7 +1498,7 @@ func (proxier *Proxier) syncProxyRules() {
 				sourceVip,
 				svcInfo.ClusterIP().String(),
 				clusterIPEndpoints,
-				loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP},
+				loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP, l4ProxyEnabled: svcInfo.l4ProxyEnabled},
 				Enum(svcInfo.Protocol()),
 				uint16(svcInfo.targetPort),
 				uint16(svcInfo.Port()),
@@ -1513,7 +1517,7 @@ func (proxier *Proxier) syncProxyRules() {
 				// Cluster IP LoadBalancer creation
 				hnsLoadBalancer, err := hns.getLoadBalancer(
 					clusterIPEndpoints,
-					loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP},
+					loadBalancerFlags{isDSR: proxier.isDSR, isIPv6: proxier.isIPv6Mode, sessionAffinity: sessionAffinityClientIP, l4ProxyEnabled: svcInfo.l4ProxyEnabled},
 					sourceVip,
 					svcInfo.ClusterIP().String(),
 					Enum(svcInfo.Protocol()),
