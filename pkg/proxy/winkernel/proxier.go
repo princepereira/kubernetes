@@ -85,14 +85,29 @@ type externalIPInfo struct {
 	hnsID string
 }
 
+func (info externalIPInfo) String() string {
+	return fmt.Sprintf("HnsID:%s, IP:%s", info.hnsID, info.ip)
+}
+
 type loadBalancerIngressInfo struct {
 	ip               string
 	hnsID            string
 	healthCheckHnsID string
 }
 
+func (info loadBalancerIngressInfo) String() string {
+	if len(info.healthCheckHnsID) > 0 {
+		return fmt.Sprintf("HealthCheckHnsID:%s, IP:%s", info.healthCheckHnsID, info.ip)
+	}
+	return fmt.Sprintf("HnsID:%s, IP:%s", info.hnsID, info.ip)
+}
+
 type loadBalancerInfo struct {
 	hnsID string
+}
+
+func (info loadBalancerInfo) String() string {
+	return fmt.Sprintf("HnsID:%s", info.hnsID)
 }
 
 type loadBalancerIdentifier struct {
@@ -101,6 +116,10 @@ type loadBalancerIdentifier struct {
 	externalPort  uint16
 	vip           string
 	endpointsHash [20]byte
+}
+
+func (info loadBalancerIdentifier) String() string {
+	return fmt.Sprintf("VIP:%s, Protocol:%d, InternalPort:%d, ExternalPort:%d", info.vip, info.protocol, info.internalPort, info.externalPort)
 }
 
 type loadBalancerFlags struct {
@@ -129,6 +148,20 @@ type serviceInfo struct {
 	localTrafficDSR        bool
 	internalTrafficLocal   bool
 	winProxyOptimization   bool
+}
+
+func (info serviceInfo) String() string {
+	svcInfoStr := fmt.Sprintf("HnsID:%s, TargetPort:%d", info.hnsID, info.targetPort)
+	if info.nodePorthnsID != "" {
+		svcInfoStr = fmt.Sprintf("%s, NodePortHnsID:%s", svcInfoStr, info.nodePorthnsID)
+	}
+	if len(info.externalIPs) > 0 {
+		svcInfoStr = fmt.Sprintf("%s, ExternalIPs:%v", svcInfoStr, info.externalIPs)
+	}
+	if len(info.loadBalancerIngressIPs) > 0 {
+		svcInfoStr = fmt.Sprintf("%s, IngressIPs:%v", svcInfoStr, info.loadBalancerIngressIPs)
+	}
+	return svcInfoStr
 }
 
 type hnsNetworkInfo struct {
@@ -302,9 +335,8 @@ type endpointsInfo struct {
 	terminating bool
 }
 
-// String is part of proxy.Endpoint interface.
-func (info *endpointsInfo) String() string {
-	return net.JoinHostPort(info.ip, strconv.Itoa(int(info.port)))
+func (info endpointsInfo) String() string {
+	return fmt.Sprintf("HnsID:%s, Address:%s", info.hnsID, net.JoinHostPort(info.ip, strconv.Itoa(int(info.port))))
 }
 
 // GetIsLocal is part of proxy.Endpoint interface.
@@ -376,16 +408,16 @@ func (proxier *Proxier) endpointsMapChange(oldEndpointsMap, newEndpointsMap prox
 	// This will optimize remote endpoint and loadbalancer deletion based on the annotation
 	var svcPortMap = make(map[proxy.ServicePortName]bool)
 	clear(proxier.terminatedEndpoints)
-	var logLevel klog.Level = 5
+	var logLevel klog.Level = 3
 	for svcPortName, eps := range oldEndpointsMap {
-		logFormattedEndpoints("endpointsMapChange oldEndpointsMap", logLevel, svcPortName, eps)
+		logFormattedEndpoints("Prince endpointsMapChange oldEndpointsMap", logLevel, svcPortName, eps)
 		svcPortMap[svcPortName] = true
 		proxier.updateTerminatedEndpoints(eps, true)
 		proxier.onEndpointsMapChange(&svcPortName, false)
 	}
 
 	for svcPortName, eps := range newEndpointsMap {
-		logFormattedEndpoints("endpointsMapChange newEndpointsMap", logLevel, svcPortName, eps)
+		logFormattedEndpoints("Prince endpointsMapChange newEndpointsMap", logLevel, svcPortName, eps)
 		// redundantCleanup true means cleanup is called second time on the same svcPort
 		proxier.updateTerminatedEndpoints(eps, false)
 		redundantCleanup := svcPortMap[svcPortName]
@@ -510,6 +542,7 @@ func (ep *endpointsInfo) DecrementRefCount() {
 	if !ep.GetIsLocal() && ep.refCount != nil && *ep.refCount > 0 {
 		*ep.refCount--
 	}
+	klog.V(3).InfoS("Prince Decremented Endpoint RefCount", "endpointsInfo", ep, "count", *ep.refCount)
 }
 
 func (ep *endpointsInfo) Cleanup() {
@@ -1448,7 +1481,7 @@ func (proxier *Proxier) syncProxyRules() {
 			klog.V(3).InfoS("Endpoint resource found", "endpointsInfo", ep)
 		}
 
-		klog.V(3).InfoS("Associated endpoints for service", "endpointsInfo", hnsEndpoints, "serviceName", svcName)
+		klog.V(3).InfoS("Associated endpoints for service", "endpointInfo", fmt.Sprintf("%v", hnsEndpoints), "serviceName", svcName)
 
 		if len(svcInfo.hnsID) > 0 {
 			// This should not happen
@@ -1634,9 +1667,9 @@ func (proxier *Proxier) syncProxyRules() {
 						continue
 					}
 					externalIP.hnsID = hnsLoadBalancer.hnsID
-					klog.V(3).InfoS("Hns LoadBalancer resource created for externalIP resources", "externalIP", externalIP, "hnsID", hnsLoadBalancer.hnsID)
+					klog.V(3).InfoS("Hns LoadBalancer resource created for externalIP resources", "externalIPInfo", externalIP, "hnsID", hnsLoadBalancer.hnsID)
 				} else {
-					klog.V(3).InfoS("Skipped creating Hns LoadBalancer for externalIP resources", "externalIP", externalIP, "allEndpointsTerminating", allEndpointsTerminating)
+					klog.V(3).InfoS("Skipped creating Hns LoadBalancer for externalIP resources", "externalIPInfo", externalIP, "allEndpointsTerminating", allEndpointsTerminating)
 				}
 			}
 		}
@@ -1684,9 +1717,9 @@ func (proxier *Proxier) syncProxyRules() {
 						continue
 					}
 					lbIngressIP.hnsID = hnsLoadBalancer.hnsID
-					klog.V(3).InfoS("Hns LoadBalancer resource created for loadBalancer Ingress resources", "lbIngressIP", lbIngressIP.ip)
+					klog.V(3).InfoS("Hns LoadBalancer resource created for loadBalancer Ingress resources", "lbIngressIPInfo", lbIngressIP.ip)
 				} else {
-					klog.V(3).InfoS("Skipped creating Hns LoadBalancer for loadBalancer Ingress resources", "lbIngressIP", lbIngressIP.ip)
+					klog.V(3).InfoS("Skipped creating Hns LoadBalancer for loadBalancer Ingress resources", "lbIngressIPInfo", lbIngressIP.ip)
 				}
 			}
 
@@ -1737,7 +1770,7 @@ func (proxier *Proxier) syncProxyRules() {
 					klog.V(3).InfoS("Hns Health Check LoadBalancer resource created for loadBalancer Ingress resources", "ip", lbIngressIP)
 				}
 			} else {
-				klog.V(3).InfoS("Skipped creating Hns Health Check LoadBalancer for loadBalancer Ingress resources", "ip", lbIngressIP, "allEndpointsTerminating", allEndpointsTerminating)
+				klog.V(3).InfoS("Skipped creating Hns Health Check LoadBalancer for loadBalancer Ingress resources", "lbIngressIPInfo", lbIngressIP, "allEndpointsTerminating", allEndpointsTerminating)
 			}
 		}
 		svcInfo.policyApplied = true
@@ -1768,9 +1801,10 @@ func (proxier *Proxier) syncProxyRules() {
 
 	// remove stale endpoint refcount entries
 	for epIP, _ := range proxier.terminatedEndpoints {
-		if epToDelete := queriedEndpoints[epIP]; epToDelete != nil && epToDelete.hnsID != "" {
+		klog.V(3).InfoS("Prince Terminates endpoints", "epIP", epIP)
+		if epToDelete := queriedEndpoints[epIP]; epToDelete != nil && epToDelete.hnsID != "" && !epToDelete.isLocal{
 			if refCount := proxier.endPointsRefCount.getRefCount(epToDelete.hnsID); refCount == nil || *refCount == 0 {
-				klog.V(3).InfoS("Deleting unreferenced remote endpoint", "hnsID", epToDelete.hnsID)
+				klog.V(3).InfoS("Prince Deleting unreferenced remote endpoint", "hnsID", epToDelete.hnsID)
 				proxier.hns.deleteEndpoint(epToDelete.hnsID)
 			}
 		}
