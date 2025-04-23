@@ -434,6 +434,24 @@ func (hns hns) getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags
 	return lbInfo, err
 }
 
+func isLoadbalancerUpdateSuccess(endpointsBeforeUpdate []string, endpointsAfterUpdate []string) bool {
+	if len(endpointsBeforeUpdate) != len(endpointsAfterUpdate) {
+		klog.Warning("Endpoints before and after loadbalancer update is not the same.", " EpCountBefore ", len(endpointsBeforeUpdate),  " EpCountAfter ", len(endpointsAfterUpdate))
+		return false
+	}
+	epIdMap := make(map[string]bool)
+	for _, epId := range endpointsBeforeUpdate {
+		epIdMap[epId] = true
+	}
+	for _, epId := range endpointsAfterUpdate {
+		if _, ok := epIdMap[epId]; !ok {
+			klog.Warning("Endpoints before and after loadbalancer update is not the same", "epIdNotfound", epId)
+			return false
+		}
+	}
+	return true
+}
+
 func (hns hns) updateLoadBalancer(hnsID string,
 	sourceVip,
 	vip string,
@@ -501,6 +519,11 @@ func (hns hns) updateLoadBalancer(hnsID string,
 	if err != nil {
 		klog.V(2).ErrorS(err, "Error updating existing loadbalancer", "hnsLbID", hnsID, "error", err, "endpoints", endpoints)
 		return nil, err
+	}
+
+	if !isLoadbalancerUpdateSuccess(loadBalancer.HostComputeEndpoints, lb.HostComputeEndpoints) {
+		klog.V(2).ErrorS(Error_Endpoints_Match_Failed, "Error updating existing loadbalancer.", "hnsLbID", hnsID, "endpointsBeforeUpdate", loadBalancer.HostComputeEndpoints, "endpointsAfterUpdate", lb.HostComputeEndpoints)
+		return nil, Error_Endpoints_Match_Failed
 	}
 
 	klog.V(1).InfoS("Update loadbalancer is successful", "loadBalancer", lb)

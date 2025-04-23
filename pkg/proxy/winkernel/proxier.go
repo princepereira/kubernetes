@@ -52,6 +52,10 @@ import (
 	netutils "k8s.io/utils/net"
 )
 
+var (
+	Error_Endpoints_Match_Failed = fmt.Errorf("ERROR-ENDPOINTS-MATCH-FAILED")
+)
+
 // KernelCompatTester tests whether the required kernel capabilities are
 // present to run the windows kernel proxier.
 type KernelCompatTester interface {
@@ -1114,7 +1118,7 @@ func (proxier *Proxier) requiresUpdateLoadbalancer(lbHnsID string, endpointCount
 // then it will set the supportedFeatures.ModifyLoadbalancer to false. return true means skip the iteration.
 func (proxier *Proxier) handleUpdateLoadbalancerFailure(err error, hnsID, svcIP string, endpointCount int) (skipIteration bool) {
 	if err != nil {
-		if hcn.IsNotImplemented(err) {
+		if hcn.IsNotImplemented(err) || err  == Error_Endpoints_Match_Failed {
 			klog.Warning("Update loadbalancer policies is not implemented.", "hnsID", hnsID, "svcIP", svcIP, "endpointCount", endpointCount)
 			proxier.supportedFeatures.ModifyLoadbalancer = false
 		} else {
