@@ -796,6 +796,96 @@ func TestCreateLoadBalancerWithoutDSR(t *testing.T) {
 	}
 }
 
+func TestDelLoadBalancerFailures(t *testing.T) {
+	proxier := NewFakeProxier(t, testNodeName, netutils.ParseIPSloppy("10.0.0.1"), NETWORK_TYPE_OVERLAY, false)
+	if proxier == nil {
+		t.Error()
+	}
+
+	svcIP := "10.20.30.41"
+	svcPort := 80
+	svcNodePort := 3001
+	svcPortName := proxy.ServicePortName{
+		NamespacedName: makeNSN("ns1", "svc1"),
+		Port:           "p80",
+		Protocol:       v1.ProtocolTCP,
+	}
+
+	makeServiceMap(proxier,
+		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
+			svc.Spec.Type = "NodePort"
+			svc.Spec.ClusterIP = svcIP
+			svc.Spec.Ports = []v1.ServicePort{{
+				Name:     svcPortName.Port,
+				Port:     int32(svcPort),
+				Protocol: v1.ProtocolTCP,
+				NodePort: int32(svcNodePort),
+			}}
+		}),
+	)
+	populateEndpointSlices(proxier,
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressRemote},
+				},
+				{
+					Addresses: []string{epIpAddressRem2},
+				},
+				{
+					Addresses: []string{epIpAddressRem3},
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+	)
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+
+	svc := proxier.svcPortMap[svcPortName]
+	svcInfo, ok := svc.(*serviceInfo)
+	if !ok {
+		t.Errorf("Failed to cast serviceInfo %q", svcPortName.String())
+
+	}
+
+	if svcInfo.hnsID != loadbalancerGuid1 {
+		t.Errorf("%v does not match %v", svcInfo.hnsID, loadbalancerGuid1)
+	}
+
+	lb, err := proxier.hcn.GetLoadBalancerByID(svcInfo.hnsID)
+	if err != nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb == nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb.Flags != hcn.LoadBalancerFlagsNone {
+		t.Errorf("Incorrect loadbalancer flags. Current value: %v", lb.Flags)
+	}
+
+	epIds := lb.HostComputeEndpoints
+	if len(epIds) != 3 {
+		t.Errorf("Incorrect number of endpoints. Current value: %v", len(epIds))
+	}
+	ep1 := hcn.HostComputeEndpoint{Id: epIds[0]}
+	proxier.hcn.DeleteEndpoint(&ep1)
+
+	lbDelErr := proxier.hcn.DeleteLoadBalancer(lb)
+	if lbDelErr == nil {
+		t.Errorf("Loadbalancer delete should have failed")
+	}
+
+}
+
 func TestCreateLoadBalancerWithDSR(t *testing.T) {
 	proxier := NewFakeProxier(t, testNodeName, netutils.ParseIPSloppy("10.0.0.1"), NETWORK_TYPE_OVERLAY, true)
 	if proxier == nil {

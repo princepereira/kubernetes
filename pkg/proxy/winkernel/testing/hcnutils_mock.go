@@ -197,6 +197,11 @@ func (hcnObj HcnMock) DeleteLoadBalancer(loadBalancer *hcn.HostComputeLoadBalanc
 	if _, ok := loadbalancerMap[loadBalancer.Id]; !ok {
 		return hcn.LoadBalancerNotFoundError{LoadBalancerId: loadBalancer.Id}
 	}
+	for _, epId := range loadBalancer.HostComputeEndpoints {
+		if _, ok := endpointMap[epId]; !ok {
+			return hcn.EndpointNotFoundError{EndpointID: epId}
+		}
+	}
 	delete(loadbalancerMap, loadBalancer.Id)
 	return nil
 }
