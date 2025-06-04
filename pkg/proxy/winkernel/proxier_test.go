@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"github.com/Microsoft/hnslib/hcn"
+	"github.com/stretchr/testify/assert"
 
 	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
@@ -793,6 +794,219 @@ func TestCreateLoadBalancerWithoutDSR(t *testing.T) {
 
 	if lb.Flags != hcn.LoadBalancerFlagsNone {
 		t.Errorf("Incorrect loadbalancer flags. Current value: %v", lb.Flags)
+	}
+}
+
+func TestDelLoadBalancerFailures(t *testing.T) {
+	proxier := NewFakeProxier(t, testNodeName, netutils.ParseIPSloppy("10.0.0.1"), NETWORK_TYPE_OVERLAY, false)
+	if proxier == nil {
+		t.Error()
+	}
+
+	svcIP := "10.20.30.41"
+	svcPort := 80
+	svcNodePort := 3001
+	svcPortName := proxy.ServicePortName{
+		NamespacedName: makeNSN("ns1", "svc1"),
+		Port:           "p80",
+		Protocol:       v1.ProtocolTCP,
+	}
+
+	makeServiceMap(proxier,
+		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
+			svc.Spec.Type = "NodePort"
+			svc.Spec.ClusterIP = svcIP
+			svc.Spec.Ports = []v1.ServicePort{{
+				Name:     svcPortName.Port,
+				Port:     int32(svcPort),
+				Protocol: v1.ProtocolTCP,
+				NodePort: int32(svcNodePort),
+			}}
+		}),
+	)
+	populateEndpointSlices(proxier,
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressRemote},
+				},
+				{
+					Addresses: []string{epIpAddressRem2},
+				},
+				{
+					Addresses: []string{epIpAddressRem3},
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+	)
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+
+	svc := proxier.svcPortMap[svcPortName]
+	svcInfo, ok := svc.(*serviceInfo)
+	if !ok {
+		t.Errorf("Failed to cast serviceInfo %q", svcPortName.String())
+
+	}
+
+	if svcInfo.hnsID != loadbalancerGuid1 {
+		t.Errorf("%v does not match %v", svcInfo.hnsID, loadbalancerGuid1)
+	}
+
+	lb, err := proxier.hcn.GetLoadBalancerByID(svcInfo.hnsID)
+	if err != nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb == nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb.Flags != hcn.LoadBalancerFlagsNone {
+		t.Errorf("Incorrect loadbalancer flags. Current value: %v", lb.Flags)
+	}
+
+	epIds := lb.HostComputeEndpoints
+	if len(epIds) != 3 {
+		t.Errorf("Incorrect number of endpoints. Current value: %v", len(epIds))
+	}
+	ep1 := hcn.HostComputeEndpoint{Id: epIds[0]}
+	proxier.hcn.DeleteEndpoint(&ep1) // Initiating a remote endpoint delete before the loadbalancer delete.
+
+	lbDelErr := proxier.hcn.DeleteLoadBalancer(lb)
+	if lbDelErr == nil {
+		t.Errorf("Loadbalancer delete should have failed")
+	}
+
+}
+
+func TestStaleLoadbalancersAfterDeleteFailures(t *testing.T) {
+	proxier := NewFakeProxier(t, testNodeName, netutils.ParseIPSloppy("10.0.0.1"), NETWORK_TYPE_OVERLAY, false)
+	if proxier == nil {
+		t.Error()
+	}
+
+	svcIP := "10.20.30.41"
+	svcPort := 80
+	svcNodePort := 3001
+	svcPortName := proxy.ServicePortName{
+		NamespacedName: makeNSN("ns1", "svc1"),
+		Port:           "p80",
+		Protocol:       v1.ProtocolTCP,
+	}
+
+	makeServiceMap(proxier,
+		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
+			svc.Spec.Type = "NodePort"
+			svc.Spec.ClusterIP = svcIP
+			svc.Spec.Ports = []v1.ServicePort{{
+				Name:     svcPortName.Port,
+				Port:     int32(svcPort),
+				Protocol: v1.ProtocolTCP,
+				NodePort: int32(svcNodePort),
+			}}
+		}),
+	)
+	populateEndpointSlices(proxier,
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressRemote},
+				},
+				{
+					Addresses: []string{epIpAddressRem2},
+				},
+				{
+					Addresses: []string{epIpAddressRem3},
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+	)
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+	proxier.setInitialized(false)
+
+	svc := proxier.svcPortMap[svcPortName]
+	svcInfo, ok := svc.(*serviceInfo)
+	if !ok {
+		t.Errorf("Failed to cast serviceInfo %q", svcPortName.String())
+
+	}
+
+	if svcInfo.hnsID != loadbalancerGuid1 {
+		t.Errorf("%v does not match %v", svcInfo.hnsID, loadbalancerGuid1)
+	}
+
+	lb, err := proxier.hcn.GetLoadBalancerByID(svcInfo.hnsID)
+	if err != nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb == nil {
+		t.Errorf("Failed to fetch loadbalancer: %v", err)
+	}
+
+	if lb.Flags != hcn.LoadBalancerFlagsNone {
+		t.Errorf("Incorrect loadbalancer flags. Current value: %v", lb.Flags)
+	}
+
+	epIds := lb.HostComputeEndpoints
+	if len(epIds) != 3 {
+		t.Errorf("Incorrect number of endpoints. Current value: %v", len(epIds))
+	}
+	ep1 := hcn.HostComputeEndpoint{Id: epIds[0]}
+	proxier.hcn.DeleteEndpoint(&ep1) // Initiating a remote endpoint delete before the loadbalancer delete.
+
+	populateEndpointSlices(proxier,
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressRemote},
+				},
+				{
+					Addresses: []string{epIpAddressRem3}, // epIpAddressRem2 is removed
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+	)
+
+	assert.Equal(t, 0, len(proxier.mapStaleLoadbalancers), "Expecting stale loadbalancers map to be empty")
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+	proxier.setInitialized(false)
+
+	assert.Equal(t, 1, len(proxier.mapStaleLoadbalancers), "Expecting stale loadbalancers map to have one stale loadbalancer")
+
+	for _, eps := range proxier.mapStaleLoadbalancers {
+		for _, ep := range eps {
+			if ep.hnsID == epIds[1] {
+				// This is the endpoint which is excluded from the endpoint slice.
+				assert.Equal(t, true, ep.markForDeletion, fmt.Sprintf("Expecting endpoint %s to be marked for deletion.", ep.hnsID))
+			} else {
+				assert.Equal(t, false, ep.markForDeletion, fmt.Sprintf("Expecting endpoint %s to be not marked for deletion.", ep.hnsID))
+			}
+			assert.Equal(t, 0, ep.staleLbRefCount, fmt.Sprintf("Expecting endpoint %s to have staleLbRefCount to be reset 0 after cleanupStaleLoadbalancer is completed.", ep.hnsID))
+		}
 	}
 }
 

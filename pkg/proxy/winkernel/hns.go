@@ -39,7 +39,7 @@ type HostNetworkService interface {
 	createEndpoint(ep *endpointInfo, networkName string) (*endpointInfo, error)
 	deleteEndpoint(hnsID string) error
 	getLoadBalancer(endpoints []endpointInfo, flags loadBalancerFlags, sourceVip string, vip string, protocol uint16, internalPort uint16, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
-	getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error)
+	getAllLoadBalancers(mapLbIdToRefEndpoints map[string]endpointIdList) (map[loadBalancerIdentifier]*loadBalancerInfo, error)
 	updateLoadBalancer(hnsID string, sourceVip, vip string, endpoints []endpointInfo, flags loadBalancerFlags, protocol, internalPort, externalPort uint16, previousLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) (*loadBalancerInfo, error)
 	deleteLoadBalancer(hnsID string) error
 }
@@ -317,7 +317,11 @@ func findLoadBalancerID(endpoints []endpointInfo, vip string, protocol, internal
 	return loadBalancerIdentifier{protocol: protocol, internalPort: internalPort, externalPort: externalPort, endpointsHash: hash}, nil
 }
 
-func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerInfo, error) {
+// getAllLoadBalancers returns all load balancers in the system.
+// Arg1 mapLbIdToRefEndpoints: returns a map from load balancer ID to the list of endpoints that are part of the load balancer.
+// Returns map[loadBalancerIdentifier]*loadBalancerInfo: returns a map from load balancer identifier to the load balancer info.
+// Returns error: returns an error if there was an error querying the load balancers.
+func (hns hns) getAllLoadBalancers(mapLbIdToRefEndpoints map[string]endpointIdList) (map[loadBalancerIdentifier]*loadBalancerInfo, error) {
 	lbs, err := hns.hcn.ListLoadBalancers()
 	var id loadBalancerIdentifier
 	if err != nil {
@@ -340,6 +344,9 @@ func (hns hns) getAllLoadBalancers() (map[loadBalancerIdentifier]*loadBalancerIn
 		}
 		loadBalancers[id] = &loadBalancerInfo{
 			hnsID: lb.Id,
+		}
+		if len(lb.HostComputeEndpoints) > 0 {
+			mapLbIdToRefEndpoints[lb.Id] = lb.HostComputeEndpoints
 		}
 	}
 	klog.V(3).InfoS("Queried load balancers", "count", len(lbs))

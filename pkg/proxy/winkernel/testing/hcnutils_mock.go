@@ -175,12 +175,31 @@ func (hcnObj HcnMock) GetLoadBalancerByID(loadBalancerId string) (*hcn.HostCompu
 	return nil, lbNotFoundError
 }
 
+func constructLoadbalancerKeyFromFrontEndInfo(loadBalancer *hcn.HostComputeLoadBalancer) string {
+	srcVip := loadBalancer.SourceVIP
+	frontendVip := ""
+	var portMapping hcn.LoadBalancerPortMapping
+	if len(loadBalancer.FrontendVIPs) > 0 {
+		frontendVip = loadBalancer.FrontendVIPs[0]
+	}
+	if len(loadBalancer.PortMappings) > 0 {
+		portMapping = loadBalancer.PortMappings[0]
+	}
+	return fmt.Sprintf("%s-%s-%v", srcVip, frontendVip, portMapping)
+}
+
 func (hcnObj HcnMock) CreateLoadBalancer(loadBalancer *hcn.HostComputeLoadBalancer) (*hcn.HostComputeLoadBalancer, error) {
 	if _, ok := loadbalancerMap[loadBalancer.Id]; ok {
 		return nil, fmt.Errorf("LoadBalancer id %s Already Present", loadBalancer.Id)
 	}
+	loadbalancerKey := constructLoadbalancerKeyFromFrontEndInfo(loadBalancer)
+	if lbInfo, ok := loadbalancerMap[loadbalancerKey]; ok {
+		loadBalancer.Id = lbInfo.Id
+		return nil, fmt.Errorf("LoadBalancer id %s Already Present", lbInfo.Id)
+	}
 	loadBalancer.Id = hcnObj.generateLoadbalancerGuid()
 	loadbalancerMap[loadBalancer.Id] = loadBalancer
+	loadbalancerMap[loadbalancerKey] = loadBalancer
 	return loadBalancer, nil
 }
 
@@ -188,8 +207,13 @@ func (hcnObj HcnMock) UpdateLoadBalancer(loadBalancer *hcn.HostComputeLoadBalanc
 	if _, ok := loadbalancerMap[hnsLbID]; !ok {
 		return nil, fmt.Errorf("LoadBalancer id %s Not Present", loadBalancer.Id)
 	}
+	loadbalancerKey := constructLoadbalancerKeyFromFrontEndInfo(loadBalancer)
+	if _, ok := loadbalancerMap[loadbalancerKey]; !ok {
+		return nil, fmt.Errorf("LoadBalancer id %s Not Present", loadBalancer.Id)
+	}
 	loadBalancer.Id = hnsLbID
 	loadbalancerMap[hnsLbID] = loadBalancer
+	loadbalancerMap[loadbalancerKey] = loadBalancer
 	return loadBalancer, nil
 }
 
@@ -197,7 +221,14 @@ func (hcnObj HcnMock) DeleteLoadBalancer(loadBalancer *hcn.HostComputeLoadBalanc
 	if _, ok := loadbalancerMap[loadBalancer.Id]; !ok {
 		return hcn.LoadBalancerNotFoundError{LoadBalancerId: loadBalancer.Id}
 	}
+	for _, epId := range loadBalancer.HostComputeEndpoints {
+		if _, ok := endpointMap[epId]; !ok {
+			return hcn.EndpointNotFoundError{EndpointID: epId}
+		}
+	}
 	delete(loadbalancerMap, loadBalancer.Id)
+	loadbalancerKey := constructLoadbalancerKeyFromFrontEndInfo(loadBalancer)
+	delete(loadbalancerMap, loadbalancerKey)
 	return nil
 }
 
