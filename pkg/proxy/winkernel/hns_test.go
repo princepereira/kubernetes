@@ -39,6 +39,8 @@ const (
 	epIpv6Address     = "192::3"
 	epIpAddressB      = "192.168.1.4"
 	epIpAddressRemote = "192.168.2.3"
+	epIpAddressRem2   = "192.168.2.4"
+	epIpAddressRem3   = "192.168.2.5"
 	epPaAddress       = "10.0.0.3"
 	protocol          = 6
 	internalPort      = 80
