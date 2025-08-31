@@ -168,7 +168,7 @@ func TestCreateServiceVip(t *testing.T) {
 
 	makeServiceMap(proxier,
 		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
-			svc.Spec.Type = "NodePort"
+			svc.Spec.Type = v1.ServiceTypeLoadBalancer
 			svc.Spec.ClusterIP = svcIP
 			svc.Spec.ExternalIPs = []string{svcExternalIPs}
 			svc.Spec.SessionAffinity = v1.ServiceAffinityClientIP
@@ -221,7 +221,7 @@ func TestCreateRemoteEndpointOverlay(t *testing.T) {
 
 	makeServiceMap(proxier,
 		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
-			svc.Spec.Type = "NodePort"
+			svc.Spec.Type = v1.ServiceTypeLoadBalancer
 			svc.Spec.ClusterIP = svcIP
 			svc.Spec.Ports = []v1.ServicePort{{
 				Name:     svcPortName.Port,

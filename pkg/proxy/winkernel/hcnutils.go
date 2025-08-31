@@ -48,6 +48,7 @@ type HcnService interface {
 	DsrSupported() error
 	// Policy functions
 	DeleteAllHnsLoadBalancerPolicy()
+	IsNotImplemented(err error) bool
 }
 
 type hcnImpl struct{}
@@ -137,4 +138,8 @@ func (hcnObj hcnImpl) DeleteAllHnsLoadBalancerPolicy() {
 			klog.V(2).ErrorS(err, "Error deleting existing loadbalancer", "lb", lb)
 		}
 	}
+}
+
+func (hcnObj hcnImpl) IsNotImplemented(err error) bool {
+	return hcn.IsNotImplemented(err)
 }
