@@ -55,6 +55,7 @@ const (
 	endpointGuid1     = "EPID-1"
 	loadbalancerGuid1 = "LBID-1"
 	loadbalancerGuid2 = "LBID-2"
+	loadbalancerGuid3 = "LBID-3"
 	endpointLocal1    = "EP-LOCAL-1"
 	endpointLocal2    = "EP-LOCAL-2"
 	endpointGw        = "EP-GW"
@@ -1511,4 +1512,230 @@ func makeTestEndpointSlice(namespace, name string, sliceNum int, epsFunc func(*d
 	}
 	epsFunc(eps)
 	return eps
+}
+
+// TestCreateUpdateDeleteETPLocalLoadBalancer tests following scenarios:
+// - Creates a service of type: Loadbalancer and ETP:Local with single local endpoint and ensures all the 3 loadbalancers (ClusterIP, NodePort and IngressIP) loadbalancers are created.
+// - Updates the service with one more local endpoint (total:2 endpoints) and ensures all the loadbalancers are updated with the new endpoint with no change in the loadbalancer guids.
+// - Removes both the local endpoints from the service and ensures the 3 loadbalancers are deleted with perfect cleanup.
+func TestCreateUpdateDeleteETPLocalLoadBalancer(t *testing.T) {
+	syncPeriod := 30 * time.Second
+	proxier := NewFakeProxier(syncPeriod, syncPeriod, "testhost", netutils.ParseIPSloppy("10.0.0.1"), NETWORK_TYPE_L2BRIDGE)
+	if proxier == nil {
+		t.Error()
+	}
+
+	proxier.supportedFeatures.ModifyLoadbalancer = true
+	hcn := (proxier.hcn).(*fakehcn.HcnMock)
+	// Populating the endpoint to the cache, since it's a local endpoint and local endpoints are managed by CNI and not KubeProxy
+	hcn.PopulateQueriedEndpoints(endpointLocal1, networkId, epIpAddressLocal1, macAddressLocal1, prefixLen)
+	hcn.PopulateQueriedEndpoints(endpointLocal2, networkId, epIpAddressLocal2, macAddressLocal2, prefixLen)
+
+	svcIP := "10.20.30.41"
+	lbIP := "11.21.31.41"
+	svcPort := 80
+	svcNodePort := 3001
+	svcPortName := proxy.ServicePortName{
+		NamespacedName: makeNSN("ns1", "svc1"),
+		Port:           "p80",
+		Protocol:       v1.ProtocolTCP,
+	}
+
+	makeServiceMap(proxier,
+		makeTestService(svcPortName.Namespace, svcPortName.Name, func(svc *v1.Service) {
+			svc.Spec.Type = v1.ServiceTypeLoadBalancer
+			svc.Spec.ClusterIP = svcIP
+			svc.Spec.ExternalTrafficPolicy = v1.ServiceExternalTrafficPolicyLocal
+			svc.Spec.Ports = []v1.ServicePort{{
+				Name:     svcPortName.Port,
+				Port:     int32(svcPort),
+				Protocol: v1.ProtocolTCP,
+				NodePort: int32(svcNodePort),
+			}}
+			svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{{
+				IP: lbIP,
+			}}
+		}),
+	)
+	populateEndpointSlices(proxier,
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{{
+				Addresses: []string{epIpAddressLocal1},
+				NodeName:  ptr.To("testhost"),
+			}}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+	)
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+
+	svc := proxier.svcPortMap[svcPortName]
+	svcInfo, ok := svc.(*serviceInfo)
+
+	// =================== Validating the current state of the system
+	assert.True(t, ok, "Failed to cast serviceInfo %q", svcPortName.String())
+	// Validating ClusterIP Loadbalancer
+	assert.Equal(t, svcInfo.hnsID, loadbalancerGuid1, fmt.Sprintf("%v does not match %v", svcInfo.hnsID, loadbalancerGuid1))
+	lb, err := proxier.hcn.GetLoadBalancerByID(loadbalancerGuid1)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch ClusterIP loadbalancer: %s. Error: %v", loadbalancerGuid1, err))
+	assert.NotNil(t, lb, "ClusterIP Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 1, fmt.Sprintf("Expected 1 HostComputeEndpoint in ClusterIP Loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// Validating NodePort Loadbalancer
+	assert.Equal(t, svcInfo.nodePorthnsID, loadbalancerGuid2, fmt.Sprintf("%v does not match %v", svcInfo.nodePorthnsID, loadbalancerGuid2))
+	lb, err = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid2)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch NodePort loadbalancer: %s. Error: %v", loadbalancerGuid2, err))
+	assert.NotNil(t, lb, "NodePort Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 1, fmt.Sprintf("Expected 1 HostComputeEndpoint in NodePort Loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// Validating IngressIP Loadbalancer
+	assert.Equal(t, len(svcInfo.loadBalancerIngressIPs), 1, fmt.Sprintf("Expected 1 IngressIP Loadbalancer, but got %d", len(svcInfo.loadBalancerIngressIPs)))
+	ingressIPInfo := svcInfo.loadBalancerIngressIPs[0]
+	assert.NotEmpty(t, ingressIPInfo.hnsID, fmt.Sprintf("Expected HNS ID to be set for ingress IP %s, but got empty value", lbIP))
+	assert.Equal(t, ingressIPInfo.hnsID, loadbalancerGuid3, fmt.Sprintf("%v does not match %v", ingressIPInfo.hnsID, loadbalancerGuid3))
+	lb, err = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid3)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch IngressIP loadbalancer: %s. Error: %v", loadbalancerGuid3, err))
+	assert.NotNil(t, lb, "IngressIP Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 1, fmt.Sprintf("Expected 1 HostComputeEndpoint in IngressIP Loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// =================== Adding one more local endpoint to the endpoint slice ==================
+	proxier.setInitialized(false)
+	proxier.OnEndpointSliceUpdate(
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{{
+				Addresses: []string{epIpAddressLocal1},
+				NodeName:  ptr.To("testhost"),
+			}}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressLocal1},
+					NodeName:  ptr.To("testhost"),
+				},
+				{
+					Addresses: []string{epIpAddressLocal2}, // Adding one more local endpoint
+					NodeName:  ptr.To("testhost"),
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}))
+
+	proxier.mu.Lock()
+	proxier.endpointSlicesSynced = true
+	proxier.mu.Unlock()
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+
+	svc = proxier.svcPortMap[svcPortName]
+	svcInfo, ok = svc.(*serviceInfo)
+
+	// =================== Validating the current state of the system
+	assert.True(t, ok, "Failed to cast serviceInfo %q", svcPortName.String())
+	// Validating ClusterIP Loadbalancer
+	assert.Equal(t, svcInfo.hnsID, loadbalancerGuid1, fmt.Sprintf("%v does not match %v", svcInfo.hnsID, loadbalancerGuid1))
+	lb, err = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid1)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch ClusterIP loadbalancer: %s. Error: %v", loadbalancerGuid1, err))
+	assert.NotNil(t, lb, "ClusterIP Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 2, fmt.Sprintf("Expected 2 HostComputeEndpoints in ClusterIP Loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// Validating NodePort Loadbalancer
+	assert.Equal(t, svcInfo.nodePorthnsID, loadbalancerGuid2, fmt.Sprintf("%v does not match %v", svcInfo.nodePorthnsID, loadbalancerGuid2))
+	lb, err = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid2)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch NodePort loadbalancer: %s. Error: %v", loadbalancerGuid2, err))
+	assert.NotNil(t, lb, "NodePort Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 2, fmt.Sprintf("Expected 2 HostComputeEndpoints in NodePort loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// Validating IngressIP Loadbalancer
+	assert.Equal(t, len(svcInfo.loadBalancerIngressIPs), 1, fmt.Sprintf("Expected 1 IngressIP Loadbalancer, but got %d", len(svcInfo.loadBalancerIngressIPs)))
+	ingressIPInfo = svcInfo.loadBalancerIngressIPs[0]
+	assert.NotEmpty(t, ingressIPInfo.hnsID, fmt.Sprintf("Expected HNS ID to be set for ingress IP %s, but got empty value", lbIP))
+	assert.Equal(t, ingressIPInfo.hnsID, loadbalancerGuid3, fmt.Sprintf("%v does not match %v", ingressIPInfo.hnsID, loadbalancerGuid3))
+	lb, err = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid3)
+	assert.Nil(t, err, fmt.Sprintf("Failed to fetch IngressIP loadbalancer: %s. Error: %v", loadbalancerGuid3, err))
+	assert.NotNil(t, lb, "IngressIP Loadbalancer object should not be nil")
+	assert.Equal(t, len(lb.HostComputeEndpoints), 2, fmt.Sprintf("Expected 2 HostComputeEndpoints in IngressIP Loadbalancer, but got %d", len(lb.HostComputeEndpoints)))
+
+	// =================== Removing all endpoints (2 eps) from the endpoint slice ==================
+	proxier.setInitialized(false)
+	ep1, _ := hcn.GetEndpointByID(endpointLocal1)
+	hcn.DeleteEndpoint(ep1)
+	proxier.OnEndpointSliceUpdate(
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{
+				{
+					Addresses: []string{epIpAddressLocal1},
+					NodeName:  ptr.To("testhost"),
+				},
+				{
+					Addresses: []string{epIpAddressLocal2}, // Adding one more local endpoint
+					NodeName:  ptr.To("testhost"),
+				},
+			}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}),
+		makeTestEndpointSlice(svcPortName.Namespace, svcPortName.Name, 1, func(eps *discovery.EndpointSlice) {
+			eps.AddressType = discovery.AddressTypeIPv4
+			eps.Endpoints = []discovery.Endpoint{{
+				Addresses: []string{epIpAddressLocal1},
+				NodeName:  ptr.To("testhost"),
+			}}
+			eps.Ports = []discovery.EndpointPort{{
+				Name:     ptr.To(svcPortName.Port),
+				Port:     ptr.To(int32(svcPort)),
+				Protocol: ptr.To(v1.ProtocolTCP),
+			}}
+		}))
+
+	proxier.mu.Lock()
+	proxier.endpointSlicesSynced = true
+	proxier.mu.Unlock()
+
+	proxier.setInitialized(true)
+	proxier.syncProxyRules()
+
+	svc = proxier.svcPortMap[svcPortName]
+	svcInfo, ok = svc.(*serviceInfo)
+
+	// =================== Validating the current state of the system
+	assert.True(t, ok, "Failed to cast serviceInfo %q", svcPortName.String())
+	// Validating ClusterIP Loadbalancer
+	assert.Empty(t, svcInfo.hnsID, fmt.Sprintf("Expecting ClusterIP LoadbalancerID to be empty, but found %v", svcInfo.hnsID))
+	lb, _ = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid1)
+	assert.Nil(t, lb, "ClusterIP Loadbalancer object should be nil")
+
+	// Validating NodePort Loadbalancer
+	assert.Empty(t, svcInfo.nodePorthnsID, fmt.Sprintf("Expecting NodePort LoadbalancerID to be empty, but found %v", svcInfo.nodePorthnsID))
+	lb, _ = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid2)
+	assert.Nil(t, lb, "NodePort Loadbalancer object should be nil")
+
+	// Validating IngressIP Loadbalancer
+	assert.Equal(t, len(svcInfo.loadBalancerIngressIPs), 1, fmt.Sprintf("Expected 1 IngressIP Loadbalancer, but got %d", len(svcInfo.loadBalancerIngressIPs)))
+	ingressIPInfo = svcInfo.loadBalancerIngressIPs[0]
+	assert.Empty(t, ingressIPInfo.hnsID, fmt.Sprintf("Expected HNS ID to be empty for ingress IP %s, but got value: %v", lbIP, ingressIPInfo.hnsID))
+	lb, _ = proxier.hcn.GetLoadBalancerByID(loadbalancerGuid3)
+	assert.Nil(t, lb, "IngressIP Loadbalancer object should be nil")
 }
