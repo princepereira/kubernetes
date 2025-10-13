@@ -146,7 +146,8 @@ type remoteSubnetInfo struct {
 }
 
 const (
-	NETWORK_TYPE_OVERLAY = "overlay"
+	NETWORK_TYPE_OVERLAY  = "overlay"
+	NETWORK_TYPE_L2BRIDGE = "L2Bridge"
 	// MAX_COUNT_STALE_LOADBALANCERS is the maximum number of stale loadbalancers which cleanedup in single syncproxyrules.
 	// If there are more stale loadbalancers to clean, it will go to next iteration of syncproxyrules.
 	MAX_COUNT_STALE_LOADBALANCERS = 20
