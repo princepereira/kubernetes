@@ -1195,6 +1195,14 @@ func (proxier *Proxier) handleUpdateLoadbalancerFailure(err error, hnsID, svcIP 
 	return skipIteration
 }
 
+// GetIPFamily returns the IP family of the given IP address
+func GetIPFamily(ip string) v1.IPFamily {
+	if netutils.IsIPv6String(ip) {
+		return v1.IPv6Protocol
+	}
+	return v1.IPv4Protocol
+}
+
 // This is where all of the hns save/restore calls happen.
 // assumes proxier.mu is held
 func (proxier *Proxier) syncProxyRules() (retryError error) {
@@ -1271,7 +1279,9 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 		}
 	}
 
-	klog.V(3).InfoS("Syncing Policies")
+	klog.V(3).InfoS("Syncing Policies", "proxierFamily", proxier.ipFamily, "serviceCount", len(proxier.svcPortMap), "endpointCount", len(proxier.endpointsMap), "queriedEndpointsCount", len(queriedEndpoints), "queriedLoadBalancersCount", len(queriedLoadBalancers))
+
+	defer klog.V(3).InfoS("Syncing Policies complete", "proxierFamily", proxier.ipFamily)
 
 	// Program HNS by adding corresponding policies for each service.
 	for svcName, svc := range proxier.svcPortMap {
@@ -1529,7 +1539,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 		}
 
 		if !proxier.requiresUpdateLoadbalancer(svcInfo.hnsID, len(clusterIPEndpoints)) {
-			proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.hnsID, svcInfo.ClusterIP().String(), Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), clusterIPEndpoints, queriedLoadBalancers)
+			proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.hnsID, svcInfo.ClusterIP().String(), sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), clusterIPEndpoints, queriedLoadBalancers)
 			if len(clusterIPEndpoints) > 0 {
 
 				// If all endpoints are terminating, then no need to create Cluster IP LoadBalancer
@@ -1545,7 +1555,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 					queriedLoadBalancers,
 				)
 				if err != nil {
-					klog.ErrorS(err, "ClusterIP policy creation failed")
+					klog.ErrorS(err, "ClusterIP policy creation failed", "clusterIP", svcInfo.ClusterIP())
 					continue
 				}
 
@@ -1584,7 +1594,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 			}
 
 			if !proxier.requiresUpdateLoadbalancer(svcInfo.nodePorthnsID, len(nodePortEndpoints)) {
-				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.nodePorthnsID, "", Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.NodePort()), nodePortEndpoints, queriedLoadBalancers)
+				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &svcInfo.nodePorthnsID, "", sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.NodePort()), nodePortEndpoints, queriedLoadBalancers)
 
 				if len(nodePortEndpoints) > 0 && endpointsAvailableForLB {
 					// If all endpoints are in terminating stage, then no need to create Node Port LoadBalancer
@@ -1599,7 +1609,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "Nodeport policy creation failed")
+						klog.ErrorS(err, "Nodeport policy creation failed", "nodeport", svcInfo.NodePort())
 						continue
 					}
 
@@ -1613,6 +1623,12 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 
 		// Create a Load Balancer Policy for each external IP
 		for _, externalIP := range svcInfo.externalIPs {
+
+			if proxier.ipFamily != GetIPFamily(externalIP.ip) {
+				klog.V(3).InfoS("Skipping ExternalIP as IP family does not match", "externalIP", externalIP.ip, "proxierIPFamily", proxier.ipFamily)
+				continue
+			}
+
 			// Disable routing mesh if ExternalTrafficPolicy is set to local
 			externalIPEndpoints := hnsEndpoints
 			if svcInfo.localTrafficDSR {
@@ -1637,7 +1653,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 			}
 
 			if !proxier.requiresUpdateLoadbalancer(externalIP.hnsID, len(externalIPEndpoints)) {
-				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &externalIP.hnsID, externalIP.ip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), externalIPEndpoints, queriedLoadBalancers)
+				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &externalIP.hnsID, externalIP.ip, sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), externalIPEndpoints, queriedLoadBalancers)
 
 				if len(externalIPEndpoints) > 0 && endpointsAvailableForLB {
 					// If all endpoints are in terminating stage, then no need to External IP LoadBalancer
@@ -1653,7 +1669,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "ExternalIP policy creation failed")
+						klog.ErrorS(err, "ExternalIP policy creation failed", "externalIP", externalIP.ip)
 						continue
 					}
 					externalIP.hnsID = hnsLoadBalancer.hnsID
@@ -1665,6 +1681,12 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 		}
 		// Create a Load Balancer Policy for each loadbalancer ingress
 		for _, lbIngressIP := range svcInfo.loadBalancerIngressIPs {
+
+			if proxier.ipFamily != GetIPFamily(lbIngressIP.ip) {
+				klog.V(3).InfoS("Skipping IngressIP as IP family does not match", "lbIngressIP", lbIngressIP.ip, "proxierIPFamily", proxier.ipFamily)
+				continue
+			}
+
 			// Try loading existing policies, if already available
 			lbIngressEndpoints := hnsEndpoints
 			if svcInfo.preserveDIP || svcInfo.localTrafficDSR {
@@ -1689,7 +1711,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 			}
 
 			if !proxier.requiresUpdateLoadbalancer(lbIngressIP.hnsID, len(lbIngressEndpoints)) {
-				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &lbIngressIP.hnsID, lbIngressIP.ip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), lbIngressEndpoints, queriedLoadBalancers)
+				proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &lbIngressIP.hnsID, lbIngressIP.ip, sourceVip, Enum(svcInfo.Protocol()), uint16(svcInfo.targetPort), uint16(svcInfo.Port()), lbIngressEndpoints, queriedLoadBalancers)
 
 				if len(lbIngressEndpoints) > 0 {
 					hnsLoadBalancer, err := hns.getLoadBalancer(
@@ -1703,7 +1725,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "IngressIP policy creation failed")
+						klog.ErrorS(err, "IngressIP policy creation failed", "lbIngressIP", lbIngressIP.ip)
 						continue
 					}
 					lbIngressIP.hnsID = hnsLoadBalancer.hnsID
@@ -1740,7 +1762,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 				}
 
 				if !proxier.requiresUpdateLoadbalancer(lbIngressIP.healthCheckHnsID, len(gwEndpoints)) {
-					proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &lbIngressIP.healthCheckHnsID, lbIngressIP.ip, Enum(svcInfo.Protocol()), uint16(nodeport), uint16(nodeport), gwEndpoints, queriedLoadBalancers)
+					proxier.deleteExistingLoadBalancer(hns, svcInfo.winProxyOptimization, &lbIngressIP.healthCheckHnsID, lbIngressIP.ip, sourceVip, Enum(svcInfo.Protocol()), uint16(nodeport), uint16(nodeport), gwEndpoints, queriedLoadBalancers)
 
 					hnsHealthCheckLoadBalancer, err := hns.getLoadBalancer(
 						gwEndpoints,
@@ -1753,7 +1775,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "Healthcheck loadbalancer policy creation failed")
+						klog.ErrorS(err, "Healthcheck loadbalancer policy creation failed", "lbIngressIP", lbIngressIP.ip)
 						continue
 					}
 					lbIngressIP.healthCheckHnsID = hnsHealthCheckLoadBalancer.hnsID
@@ -1804,7 +1826,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 
 // deleteExistingLoadBalancer checks whether loadbalancer delete is needed or not.
 // If it is needed, the function will delete the existing loadbalancer and return true, else false.
-func (proxier *Proxier) deleteExistingLoadBalancer(hns HostNetworkService, winProxyOptimization bool, lbHnsID *string, vip string, protocol, intPort, extPort uint16, endpoints []endpointInfo, queriedLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) bool {
+func (proxier *Proxier) deleteExistingLoadBalancer(hns HostNetworkService, winProxyOptimization bool, lbHnsID *string, vip, sourceVip string, protocol, intPort, extPort uint16, endpoints []endpointInfo, queriedLoadBalancers map[loadBalancerIdentifier]*loadBalancerInfo) bool {
 
 	if !winProxyOptimization || *lbHnsID == "" {
 		// Loadbalancer delete not needed
@@ -1814,6 +1836,7 @@ func (proxier *Proxier) deleteExistingLoadBalancer(hns HostNetworkService, winPr
 	lbID, lbIdErr := findLoadBalancerID(
 		endpoints,
 		vip,
+		sourceVip,
 		protocol,
 		intPort,
 		extPort,
@@ -1832,10 +1855,13 @@ func (proxier *Proxier) deleteExistingLoadBalancer(hns HostNetworkService, winPr
 }
 
 func (proxier *Proxier) deleteLoadBalancer(hns HostNetworkService, lbHnsID *string) bool {
-	klog.V(3).InfoS("Hns LoadBalancer delete triggered for loadBalancer resources", "lbHnsID", *lbHnsID)
+	klog.V(3).InfoS("Hns LoadBalancer delete triggered for loadBalancer resources", "lbHnsID", *lbHnsID, "proxierIPFamily", proxier.ipFamily)
 	if err := hns.deleteLoadBalancer(*lbHnsID); err != nil {
+		klog.ErrorS(err, "LoadBalancer deletion failed. Adding to stale loadbalancers.", "hnsID", *lbHnsID)
 		// This will be cleanup by cleanupStaleLoadbalancer fnction.
 		proxier.mapStaleLoadbalancers[*lbHnsID] = true
+	} else {
+		klog.V(3).InfoS("Hns LoadBalancer resource deleted for loadBalancer resources", "lbHnsID", *lbHnsID)
 	}
 	*lbHnsID = ""
 	return true

@@ -70,6 +70,15 @@ func NewHcnMock(hnsNetwork *hcn.HostComputeNetwork) *HcnMock {
 }
 
 func (hcnObj HcnMock) PopulateQueriedEndpoints(epId, hnsId, ipAddress, mac string, prefixLen uint8) {
+
+	if endpoint, ok := endpointMap[epId]; ok {
+		endpoint.IpConfigurations = append(endpoint.IpConfigurations, hcn.IpConfig{
+			IpAddress:    ipAddress,
+			PrefixLength: prefixLen,
+		})
+		return
+	}
+
 	endpoint := &hcn.HostComputeEndpoint{
 		Id:                 epId,
 		Name:               epId,
