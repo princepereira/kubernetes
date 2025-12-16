@@ -1195,6 +1195,14 @@ func (proxier *Proxier) handleUpdateLoadbalancerFailure(err error, hnsID, svcIP 
 	return skipIteration
 }
 
+// GetIPFamily returns the IP family of the given IP address
+func GetIPFamily(ip string) v1.IPFamily {
+	if netutils.IsIPv6String(ip) {
+		return v1.IPv6Protocol
+	}
+	return v1.IPv4Protocol
+}
+
 // This is where all of the hns save/restore calls happen.
 // assumes proxier.mu is held
 func (proxier *Proxier) syncProxyRules() (retryError error) {
@@ -1545,7 +1553,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 					queriedLoadBalancers,
 				)
 				if err != nil {
-					klog.ErrorS(err, "ClusterIP policy creation failed")
+					klog.ErrorS(err, "ClusterIP policy creation failed", "clusterIP", svcInfo.ClusterIP())
 					continue
 				}
 
@@ -1599,7 +1607,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "Nodeport policy creation failed")
+						klog.ErrorS(err, "Nodeport policy creation failed", "nodeport", svcInfo.NodePort())
 						continue
 					}
 
@@ -1613,6 +1621,12 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 
 		// Create a Load Balancer Policy for each external IP
 		for _, externalIP := range svcInfo.externalIPs {
+
+			if proxier.ipFamily != GetIPFamily(externalIP.ip) {
+				klog.V(3).InfoS("Skipping ExternalIP as IP family does not match", "externalIP", externalIP.ip, "proxierIPFamily", proxier.ipFamily)
+				continue
+			}
+
 			// Disable routing mesh if ExternalTrafficPolicy is set to local
 			externalIPEndpoints := hnsEndpoints
 			if svcInfo.localTrafficDSR {
@@ -1653,7 +1667,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "ExternalIP policy creation failed")
+						klog.ErrorS(err, "ExternalIP policy creation failed", "externalIP", externalIP.ip)
 						continue
 					}
 					externalIP.hnsID = hnsLoadBalancer.hnsID
@@ -1665,6 +1679,12 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 		}
 		// Create a Load Balancer Policy for each loadbalancer ingress
 		for _, lbIngressIP := range svcInfo.loadBalancerIngressIPs {
+
+			if proxier.ipFamily != GetIPFamily(lbIngressIP.ip) {
+				klog.V(3).InfoS("Skipping IngressIP as IP family does not match", "lbIngressIP", lbIngressIP.ip, "proxierIPFamily", proxier.ipFamily)
+				continue
+			}
+
 			// Try loading existing policies, if already available
 			lbIngressEndpoints := hnsEndpoints
 			if svcInfo.preserveDIP || svcInfo.localTrafficDSR {
@@ -1703,7 +1723,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "IngressIP policy creation failed")
+						klog.ErrorS(err, "IngressIP policy creation failed", "lbIngressIP", lbIngressIP.ip)
 						continue
 					}
 					lbIngressIP.hnsID = hnsLoadBalancer.hnsID
@@ -1753,7 +1773,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 						queriedLoadBalancers,
 					)
 					if err != nil {
-						klog.ErrorS(err, "Healthcheck loadbalancer policy creation failed")
+						klog.ErrorS(err, "Healthcheck loadbalancer policy creation failed", "lbIngressIP", lbIngressIP.ip)
 						continue
 					}
 					lbIngressIP.healthCheckHnsID = hnsHealthCheckLoadBalancer.hnsID
