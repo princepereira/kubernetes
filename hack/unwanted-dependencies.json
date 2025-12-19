@@ -208,7 +208,6 @@
         "sigs.k8s.io/structured-merge-diff/v6"
       ],
       "github.com/pkg/errors": [
-        "github.com/Microsoft/hnslib",
         "github.com/google/cadvisor",
         "sigs.k8s.io/kustomize/api",
         "sigs.k8s.io/kustomize/kustomize/v5"
