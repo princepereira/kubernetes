@@ -1518,6 +1518,7 @@ func (proxier *Proxier) syncProxyRules() {
 				queriedLoadBalancers,
 			)
 			if skipIteration := proxier.handleUpdateLoadbalancerFailure(err, svcInfo.hnsID, svcInfo.ClusterIP().String(), len(clusterIPEndpoints)); skipIteration {
+				metrics.WinKernelClusterIPLBUpdateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 				continue
 			}
 		}
@@ -1540,6 +1541,7 @@ func (proxier *Proxier) syncProxyRules() {
 				)
 				if err != nil {
 					klog.ErrorS(err, "ClusterIP policy creation failed")
+					metrics.WinKernelClusterIPLBCreateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 					continue
 				}
 
@@ -1573,6 +1575,7 @@ func (proxier *Proxier) syncProxyRules() {
 					queriedLoadBalancers,
 				)
 				if skipIteration := proxier.handleUpdateLoadbalancerFailure(err, svcInfo.nodePorthnsID, sourceVip, len(nodePortEndpoints)); skipIteration {
+					metrics.WinKernelNodePortLBUpdateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 					continue
 				}
 			}
@@ -1594,6 +1597,7 @@ func (proxier *Proxier) syncProxyRules() {
 					)
 					if err != nil {
 						klog.ErrorS(err, "Nodeport policy creation failed")
+						metrics.WinKernelNodePortLBCreateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 						continue
 					}
 
@@ -1678,6 +1682,7 @@ func (proxier *Proxier) syncProxyRules() {
 					queriedLoadBalancers,
 				)
 				if skipIteration := proxier.handleUpdateLoadbalancerFailure(err, lbIngressIP.hnsID, lbIngressIP.ip, len(lbIngressEndpoints)); skipIteration {
+					metrics.WinKernelIngressIPLBUpdateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 					continue
 				}
 			}
@@ -1698,6 +1703,7 @@ func (proxier *Proxier) syncProxyRules() {
 					)
 					if err != nil {
 						klog.ErrorS(err, "IngressIP policy creation failed")
+						metrics.WinKernelIngressIPLBCreateFailure.WithLabelValues(string(proxier.ipFamily)).Inc()
 						continue
 					}
 					lbIngressIP.hnsID = hnsLoadBalancer.hnsID
