@@ -266,6 +266,48 @@ var (
 		[]string{"traffic_policy"},
 	)
 
+	// WinKernelLBCreateFailure is the number of winkernel lb create failures that the proxy has
+	// seen.
+	// Cardinality: ip_family(2) x lb_type(5) x error(6) = 60 max; in practice much lower
+	// since a proxier uses a single ip_family and most error/lb_type combos never fire.
+	WinKernelLBCreateFailure = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      kubeProxySubsystem,
+			Name:           "sync_proxy_rules_winkernel_lb_create_failures_total",
+			Help:           "Cumulative proxy winkernel lb create failures",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"ip_family", "lb_type", "error"},
+	)
+
+	// WinKernelLBUpdateFailure is the number of winkernel lb update failures that the proxy has
+	// seen.
+	// Cardinality: ip_family(2) x lb_type(5) x error(6) = 60 max; in practice much lower
+	// since a proxier uses a single ip_family and most error/lb_type combos never fire.
+	WinKernelLBUpdateFailure = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      kubeProxySubsystem,
+			Name:           "sync_proxy_rules_winkernel_lb_update_failures_total",
+			Help:           "Cumulative proxy winkernel lb update failures",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"ip_family", "lb_type", "error"},
+	)
+
+	// WinKernelLBDeleteFailure is the number of winkernel all lb delete failures that the proxy has
+	// seen.
+	// Cardinality: ip_family(2) x lb_type(5) x error(6) = 60 max; in practice much lower
+	// since a proxier uses a single ip_family and most error/lb_type combos never fire.
+	WinKernelLBDeleteFailure = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      kubeProxySubsystem,
+			Name:           "sync_proxy_rules_winkernel_lb_delete_failures_total",
+			Help:           "Cumulative proxy winkernel lb delete failures",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"ip_family", "lb_type", "error"},
+	)
+
 	// localhostNodePortsAcceptedPacketsDescription describe the metrics for the number of packets accepted
 	// by iptables which were destined for nodeports on loopback interface.
 	localhostNodePortsAcceptedPacketsDescription = metrics.NewDesc(
@@ -322,7 +364,9 @@ func RegisterMetrics(mode kubeproxyconfig.ProxyMode) {
 			legacyregistry.MustRegister(NFTablesCleanupFailuresTotal)
 
 		case kubeproxyconfig.ProxyModeKernelspace:
-			// currently no winkernel-specific metrics
+			legacyregistry.MustRegister(WinKernelLBCreateFailure)
+			legacyregistry.MustRegister(WinKernelLBUpdateFailure)
+			legacyregistry.MustRegister(WinKernelLBDeleteFailure)
 		}
 	})
 }
