@@ -1782,6 +1782,13 @@ func (proxier *Proxier) syncProxyRules() {
 	}
 
 	// remove stale endpoint refcount entries
+	go proxier.cleanupTerminatedEndpoints(queriedEndpoints)
+}
+
+// cleanupTerminatedEndpoints removes stale endpoint refcount entries for
+// terminated endpoints that are no longer referenced by any load balancer.
+func (proxier *Proxier) cleanupTerminatedEndpoints(queriedEndpoints map[string]*endpointInfo) {
+	klog.V(3).InfoS("Cleaning up terminated endpoints", "terminatedEndpointsCount", len(proxier.terminatedEndpoints))
 	for epIP := range proxier.terminatedEndpoints {
 		klog.V(5).InfoS("Terminated endpoints ready for deletion", "epIP", epIP)
 		if epToDelete := queriedEndpoints[epIP]; epToDelete != nil && epToDelete.hnsID != "" && !epToDelete.IsLocal() {
@@ -1795,6 +1802,7 @@ func (proxier *Proxier) syncProxyRules() {
 			}
 		}
 	}
+	klog.V(3).InfoS("Completed cleaning up terminated endpoints")
 	// This will cleanup stale load balancers which are pending delete
 	// in last iteration
 	proxier.cleanupStaleLoadbalancers()
