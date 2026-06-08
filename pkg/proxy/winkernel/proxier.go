@@ -945,41 +945,48 @@ func (svcInfo *serviceInfo) cleanupAllPolicies(endpoints []proxy.Endpoint, mapSt
 func (svcInfo *serviceInfo) deleteLoadBalancerPolicy(mapStaleLoadbalancer map[string]bool) {
 	// Remove the Hns Policy corresponding to this service
 	hns := svcInfo.hns
-	klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for clusterip loadbalancer resources in cleanup", "clusterIPLoadbalancerID", svcInfo.hnsID)
-	if err := hns.deleteLoadBalancer(svcInfo.hnsID); err != nil {
-		mapStaleLoadbalancer[svcInfo.hnsID] = true
-		klog.V(1).ErrorS(err, "Error deleting Hns loadbalancer policy resource.", "hnsID", svcInfo.hnsID, "ClusterIP", svcInfo.ClusterIP())
-	} else {
-		// On successful delete, remove hnsId
-		svcInfo.hnsID = ""
+	if svcInfo.hnsID != "" {
+		klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for clusterip loadbalancer resources in cleanup", "clusterIPLoadbalancerID", svcInfo.hnsID)
+		if err := hns.deleteLoadBalancer(svcInfo.hnsID); err != nil {
+			mapStaleLoadbalancer[svcInfo.hnsID] = true
+			klog.V(1).ErrorS(err, "Error deleting Hns loadbalancer policy resource.", "hnsID", svcInfo.hnsID, "ClusterIP", svcInfo.ClusterIP())
+		} else {
+			// On successful delete, remove hnsId
+			svcInfo.hnsID = ""
+		}
 	}
 
-	klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for nodeport loadbalancer resources in cleanup", "nodePortLoadbalancerID", svcInfo.nodePorthnsID)
-	if err := hns.deleteLoadBalancer(svcInfo.nodePorthnsID); err != nil {
-		mapStaleLoadbalancer[svcInfo.nodePorthnsID] = true
-		klog.V(1).ErrorS(err, "Error deleting Hns NodePort policy resource.", "hnsID", svcInfo.nodePorthnsID, "NodePort", svcInfo.NodePort())
-	} else {
-		// On successful delete, remove hnsId
-		svcInfo.nodePorthnsID = ""
+	if svcInfo.nodePorthnsID != "" {
+		klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for nodeport loadbalancer resources in cleanup", "nodePortLoadbalancerID", svcInfo.nodePorthnsID)
+		if err := hns.deleteLoadBalancer(svcInfo.nodePorthnsID); err != nil {
+			mapStaleLoadbalancer[svcInfo.nodePorthnsID] = true
+			klog.V(1).ErrorS(err, "Error deleting Hns NodePort policy resource.", "hnsID", svcInfo.nodePorthnsID, "NodePort", svcInfo.NodePort())
+		} else {
+			// On successful delete, remove hnsId
+			svcInfo.nodePorthnsID = ""
+		}
 	}
 
 	for _, externalIP := range svcInfo.externalIPs {
-		mapStaleLoadbalancer[externalIP.hnsID] = true
-		if err := hns.deleteLoadBalancer(externalIP.hnsID); err != nil {
-			klog.V(1).ErrorS(err, "Error deleting Hns ExternalIP policy resource.", "hnsID", externalIP.hnsID, "IP", externalIP.ip)
-		} else {
-			// On successful delete, remove hnsId
-			externalIP.hnsID = ""
+		if externalIP.hnsID != "" {
+			mapStaleLoadbalancer[externalIP.hnsID] = true
+			if err := hns.deleteLoadBalancer(externalIP.hnsID); err != nil {
+				klog.V(1).ErrorS(err, "Error deleting Hns ExternalIP policy resource.", "hnsID", externalIP.hnsID, "IP", externalIP.ip)
+			} else {
+				// On successful delete, remove hnsId
+				externalIP.hnsID = ""
 		}
 	}
 	for _, lbIngressIP := range svcInfo.loadBalancerIngressIPs {
-		klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for loadBalancer Ingress resources in cleanup", "lbIngressIP", lbIngressIP)
-		if err := hns.deleteLoadBalancer(lbIngressIP.hnsID); err != nil {
-			mapStaleLoadbalancer[lbIngressIP.hnsID] = true
-			klog.V(1).ErrorS(err, "Error deleting Hns IngressIP policy resource.", "hnsID", lbIngressIP.hnsID, "IP", lbIngressIP.ip)
-		} else {
-			// On successful delete, remove hnsId
-			lbIngressIP.hnsID = ""
+		if lbIngressIP.hnsID != "" {
+			klog.V(3).InfoS("Loadbalancer Hns LoadBalancer delete triggered for loadBalancer Ingress resources in cleanup", "lbIngressIP", lbIngressIP)
+			if err := hns.deleteLoadBalancer(lbIngressIP.hnsID); err != nil {
+				mapStaleLoadbalancer[lbIngressIP.hnsID] = true
+				klog.V(1).ErrorS(err, "Error deleting Hns IngressIP policy resource.", "hnsID", lbIngressIP.hnsID, "IP", lbIngressIP.ip)
+			} else {
+				// On successful delete, remove hnsId
+				lbIngressIP.hnsID = ""
+			}
 		}
 
 		if lbIngressIP.healthCheckHnsID != "" {
