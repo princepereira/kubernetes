@@ -1495,7 +1495,7 @@ func (proxier *Proxier) syncProxyRules() (retryError error) {
 		if len(hnsEndpoints) == 0 {
 			if svcInfo.winProxyOptimization {
 				// Deleting loadbalancers when there are no endpoints to serve.
-				klog.V(3).InfoS("Cleanup existing ", "endpointInfo", hnsEndpoints, "serviceName", svcName)
+				klog.V(3).InfoS("Cleanup existing", "endpointInfo", hnsEndpoints, "serviceName", svcName)
 				svcInfo.deleteLoadBalancerPolicy(proxier.mapStaleLoadbalancers)
 			}
 			klog.ErrorS(nil, "Endpoint information not available for service, not applying any policy", "serviceName", svcName)
