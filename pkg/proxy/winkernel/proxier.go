@@ -975,6 +975,7 @@ func (svcInfo *serviceInfo) deleteLoadBalancerPolicy(mapStaleLoadbalancer map[st
 			} else {
 				// On successful delete, remove hnsId
 				externalIP.hnsID = ""
+			}
 		}
 	}
 	for _, lbIngressIP := range svcInfo.loadBalancerIngressIPs {
